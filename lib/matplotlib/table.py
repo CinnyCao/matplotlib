@@ -364,6 +364,26 @@ class Table(Artist):
         bbox = Bbox.union(boxes)
         return bbox.inverse_transformed(self.get_transform())
 
+    def containedCell(self, mouseevent):
+        """Test whether the mouse event occurred in the table.
+
+        Returns T/F, {}
+        """
+        if callable(self._contains):
+            return self._contains(self, mouseevent)
+
+        # TODO: Return index of the cell containing the cursor so that the user
+        # doesn't have to bind to each one individually.
+        renderer = self.figure._cachedRenderer
+        if renderer is not None:
+            # exclude the first label row and label col
+            for (r, c), cell in six.iteritems(self._cells):
+                if r >= 1 and c >= 0:
+                    box = cell.get_window_extent(renderer)
+                    if box.contains(mouseevent.x, mouseevent.y):
+                        return box, cell, r, c
+        return None, None, -1, -1
+
     def contains(self, mouseevent):
         """Test whether the mouse event occurred in the table.
 
@@ -582,6 +602,103 @@ class Table(Artist):
         'return a dict of cells in the table'
         return self._cells
 
+    def enable_markerPicker(self, markerPicker):
+        if markerPicker:
+            self.figure.canvas.mpl_connect(
+                'button_press_event',
+                lambda event: self.draw_marker(event, markerPicker))
+
+    def draw_marker(self, event, markerPicker):
+        pickedMarker = markerPicker.get_pickedMarker()
+        if pickedMarker:
+            if isinstance(pickedMarker, dict):
+                bbox, cell, col, row = self.containedCell(event)
+                if (bbox):
+                    l, b, w, h = bbox.bounds
+                    y = b + (h / 2.0)
+                    x = l + (w / 2.0)
+                    inv = self._axes.transData.inverted()
+                    xdata, ydata = inv.transform((x, y))
+                    self._axes.plot(xdata, ydata,
+                                    scalex=False, scaley=False,
+                                    **pickedMarker)
+                    self.figure.canvas.draw()
+            else:
+                raise ValueError('Invalid markers provided.')
+
+
+class MarkerPickerTable(Table):
+    def __init__(self, ax, markerOptions, colLabels=None, *arg, **kwargs):
+        Table.__init__(self, ax, *arg, **kwargs)
+        if colLabels:
+            self._colLabels = colLabels
+        else:
+            self._colLabels = ['marker style', 'note']
+        self.set_markerOptions(markerOptions)
+        self.set_pickedMarker()
+        self.figure.canvas.mpl_connect(
+            'button_press_event', self.select_marker)
+
+    def set_markerOptions(self, markerOptions):
+        self._markerOptions = markerOptions
+        # add eraser option
+        # self._markerOptions.append(["Eraser", "Erase the marker."])
+        # renderer = self.figure._cachedRenderer
+        height = self._approx_text_height()
+        cols = len(markerOptions[0])
+        colWidths = [1.0 / cols] * cols
+        optionsNum = len(self._markerOptions)
+        # Add the cells
+        for index in range(optionsNum):
+            for col in range(2):
+                self.add_cell(index+1, col,
+                              width=colWidths[col], height=height,
+                              text=self._markerOptions[index][col],
+                              loc='center')
+        # cellText = "" if col == 0 else self._markerOptions[index][1]
+        # cell = self.add_cell(index + 1, col, width=colWidths[col],
+        #                      height=height, text=cellText, loc='center')
+        # for (r, c), cell in six.iteritems(self._cells):
+        #     print(cell)
+        #     box = cell.get_window_extent(renderer)
+        #     pickedMarker = self._markerOptions[r-1][0]
+        #     if isinstance(pickedMarker, dict):
+        #         l, b, w, h = box.bounds
+        #         # print(box, cell)
+        #         y = b + (h / 2.0)
+        #         x = l + (w / 2.0)
+        #         inv = self._axes.transData.inverted()
+        #         xdata, ydata = inv.transform((x, y))
+        #         c = self._axes.scatter(
+        #             xdata, ydata, autoscale=False, **pickedMarker)
+        #         c.figure.canvas.draw()
+        #     else:
+        #         raise ValueError('Invalid markers provided.')
+        for col in range(2):
+            self.add_cell(0, col, width=colWidths[col], height=height,
+                          text=self._colLabels[col], loc='center')
+
+    def get_markerOptions(self):
+        return self._markerOptions
+
+    def get_pickedMarker(self):
+        return self._markerOptions[self._markerIndex][0]
+
+    def set_pickedMarker(self, markerIndex=0):
+        self._markerIndex = markerIndex
+        for (r, c), cell in six.iteritems(self._cells):
+            if r >= 0 and c >= 0:
+                if r == markerIndex+1:
+                    cell.set_facecolor('yellow')
+                else:
+                    cell.set_facecolor('white')
+        self.figure.canvas.draw()
+
+    def select_marker(self, event):
+        bbox, cell, row, col = self.containedCell(event)
+        if bbox:
+            self.set_pickedMarker(row-1)
+
 
 def table(ax,
           cellText=None, cellColours=None,
@@ -589,6 +706,8 @@ def table(ax,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
+          markerOptions=None, canvasTable=None,
+          mpColLabels=None, mpLoc='center',
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
@@ -601,100 +720,114 @@ def table(ax,
 
     Thanks to John Gill for providing the class and table.
     """
-
-    if cellColours is None and cellText is None:
-        raise ValueError('At least one argument from "cellColours" or '
-                         '"cellText" must be provided to create a table.')
-
-    # Check we have some cellText
-    if cellText is None:
-        # assume just colours are needed
-        rows = len(cellColours)
-        cols = len(cellColours[0])
-        cellText = [[''] * cols] * rows
-
-    rows = len(cellText)
-    cols = len(cellText[0])
-    for row in cellText:
-        if len(row) != cols:
-            raise ValueError("Each row in 'cellText' must have {} columns"
-                             .format(cols))
-
-    if cellColours is not None:
-        if len(cellColours) != rows:
-            raise ValueError("'cellColours' must have {} rows".format(rows))
-        for row in cellColours:
-            if len(row) != cols:
-                raise ValueError("Each row in 'cellColours' must have {} "
-                                 "columns".format(cols))
-    else:
-        cellColours = ['w' * cols] * rows
-
-    # Set colwidths if not given
-    if colWidths is None:
-        colWidths = [1.0 / cols] * cols
-
-    # Fill in missing information for column
-    # and row labels
-    rowLabelWidth = 0
-    if rowLabels is None:
-        if rowColours is not None:
-            rowLabels = [''] * rows
-            rowLabelWidth = colWidths[0]
-    elif rowColours is None:
-        rowColours = 'w' * rows
-
-    if rowLabels is not None:
-        if len(rowLabels) != rows:
-            raise ValueError("'rowLabels' must be of length {0}".format(rows))
-
-    # If we have column labels, need to shift
-    # the text and colour arrays down 1 row
-    offset = 1
-    if colLabels is None:
-        if colColours is not None:
-            colLabels = [''] * cols
+    if markerOptions is not None or canvasTable is not None\
+            or mpColLabels is not None:
+        if markerOptions is not None and canvasTable is not None\
+                and len(markerOptions) > 0:
+            table = MarkerPickerTable(ax, markerOptions,
+                                      colLabels=mpColLabels, loc=mpLoc,
+                                      **kwargs)
+            canvasTable.enable_markerPicker(table)
         else:
-            offset = 0
-    elif colColours is None:
-        colColours = 'w' * cols
+            raise ValueError('No marker options or canvas table provided.')
 
-    # Set up cell colours if not given
-    if cellColours is None:
-        cellColours = ['w' * cols] * rows
+    else:
+        if cellColours is None and cellText is None:
+            raise ValueError('At least one argument from "cellColours" or '
+                             '"cellText" must be provided to create a table.')
 
-    # Now create the table
-    table = Table(ax, loc, bbox, **kwargs)
-    table.edges = edges
-    height = table._approx_text_height()
+        # Check we have some cellText
+        if cellText is None:
+            # assume just colours are needed
+            rows = len(cellColours)
+            cols = len(cellColours[0])
+            cellText = [[''] * cols] * rows
 
-    # Add the cells
-    for row in range(rows):
-        for col in range(cols):
-            table.add_cell(row + offset, col,
-                           width=colWidths[col], height=height,
-                           text=cellText[row][col],
-                           facecolor=cellColours[row][col],
-                           loc=cellLoc)
-    # Do column labels
-    if colLabels is not None:
-        for col in range(cols):
-            table.add_cell(0, col,
-                           width=colWidths[col], height=height,
-                           text=colLabels[col], facecolor=colColours[col],
-                           loc=colLoc)
+        rows = len(cellText)
+        cols = len(cellText[0])
+        for row in cellText:
+            if len(row) != cols:
+                raise ValueError("Each row in 'cellText' must have {} columns"
+                                 .format(cols))
 
-    # Do row labels
-    if rowLabels is not None:
+        if cellColours is not None:
+            if len(cellColours) != rows:
+                raise ValueError("'cellColours' must have {} rows"
+                                 .format(rows))
+            for row in cellColours:
+                if len(row) != cols:
+                    raise ValueError("Each row in 'cellColours' must have {} "
+                                     "columns".format(cols))
+        else:
+            cellColours = ['w' * cols] * rows
+
+        # Set colwidths if not given
+        if colWidths is None:
+            colWidths = [1.0 / cols] * cols
+
+        # Fill in missing information for column
+        # and row labels
+        rowLabelWidth = 0
+        if rowLabels is None:
+            if rowColours is not None:
+                rowLabels = [''] * rows
+                rowLabelWidth = colWidths[0]
+        elif rowColours is None:
+            rowColours = 'w' * rows
+
+        if rowLabels is not None:
+            if len(rowLabels) != rows:
+                raise ValueError("'rowLabels' must be of"" length {0}"
+                                 .format(rows))
+
+        # If we have column labels, need to shift
+        # the text and colour arrays down 1 row
+        offset = 1
+        if colLabels is None:
+            if colColours is not None:
+                colLabels = [''] * cols
+            else:
+                offset = 0
+        elif colColours is None:
+            colColours = 'w' * cols
+
+        # Set up cell colours if not given
+        if cellColours is None:
+            cellColours = ['w' * cols] * rows
+
+        # Now create the table
+        table = Table(ax, loc, bbox, **kwargs)
+        table.edges = edges
+        height = table._approx_text_height()
+
+        # Add the cells
         for row in range(rows):
-            table.add_cell(row + offset, -1,
-                           width=rowLabelWidth or 1e-15, height=height,
-                           text=rowLabels[row], facecolor=rowColours[row],
-                           loc=rowLoc)
-        if rowLabelWidth == 0:
-            table.auto_set_column_width(-1)
+            for col in range(cols):
+                table.add_cell(row + offset, col,
+                               width=colWidths[col], height=height,
+                               text=cellText[row][col],
+                               facecolor=cellColours[row][col],
+                               loc=cellLoc)
+        # Do column labels
+        if colLabels is not None:
+            for col in range(cols):
+                table.add_cell(0, col,
+                               width=colWidths[col], height=height,
+                               text=colLabels[col], facecolor=colColours[col],
+                               loc=colLoc)
+
+        # Do row labels
+        if rowLabels is not None:
+            for row in range(rows):
+                table.add_cell(row + offset, -1,
+                               width=rowLabelWidth or 1e-15, height=height,
+                               text=rowLabels[row], facecolor=rowColours[row],
+                               loc=rowLoc)
+            if rowLabelWidth == 0:
+                table.auto_set_column_width(-1)
 
     ax.add_table(table)
+
     return table
 
 
