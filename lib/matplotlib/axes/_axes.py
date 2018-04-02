@@ -2169,16 +2169,77 @@ class Axes(_AxesBase):
 
     @docstring.dedent_interpd
     def bullet(self, bar_height, bullet_height, cap_height, **kwargs):
+        
+        """
+        Make a bullet chart.
 
+        Call signatures::
+
+           bar(bar_height, bullet_height, cap_height, **kwargs)
+        
+        The dimension of bar is given by *bar_width* and *bar_height*. 
+        The vertical baseline is *bar_bottom* (default 0).
+        
+        The dimension of bullet is given by 
+        *bullet_width* (default: bar_width/4) and  *bullet_height*.
+        
+        The dimension of cap is given by *cap_height*
+        
+        
+        Parameters
+        ----------
+        bar_height : scalar or sequence of scalars
+            The height(s) of the bar.
+            
+        bullet_height : scalar or array-like
+           The height(s) of the bullet line.
+           
+        cap_height : scalar or array-like, 
+           The height(s) of the cap on bullet chart. 
+           cap_height > bar_height will throw warning.
+           
+        bar_width : scalar or array-like, optional
+           The width(s) of the bars (default: 0.4).
+        
+        bar_bottom : scalar or array-like, optional
+           The y coordinate(s) of the bars bases (default: 0).
+        
+        bar_color : scalar or array-like, optional
+           The colors of the bar faces (default: None).
+        
+        bullet_width: scalar or array-like, optional
+           The width(s) of the bullet (default: bar_width/4).
+            
+        bullet_color: scalar or array-like, optional
+           The colors of the bullet faces (default: black).
+           
+        cap_width: scalar or array-like, optional
+           The width(s) of the cap (default: 8)
+           
+        cap_color: scalar or array-like, optional
+           The colors of the cap faces (default: bullet_color).
+        
+        label: string or array-like, optional
+           The label(s) of the bullet chart (default: none)
+        
+        See also
+        --------
+        bulleth: Plot a horizontal bullet chart. 
+        
+        """
+        
         n = len(bar_height)
         m = max(map(len, bar_height))
         bar_x = np.arange(n)
         
         #functools.reduce(lambda x,y: x>=y, li,True)
+        
+        #Compare cap height with bar height, throw a warning if cap overflow. 
         if (False in map(lambda t: t[0]>=t[1], zip(map(sum, bar_height),cap_height))):
             warnings.warn("cap is overflowing!")
+        
+        #Extract parameters 
         bar_height = list(map(lambda li:li+ [0]*(m-len(li)) , bar_height))
-                         
         bar_width = kwargs.pop('bar_width', .4)
         bar_bottom = kwargs.pop('bar_bottom', [0]*n)
         bar_color = kwargs.pop('color', [None]*m)
@@ -2187,7 +2248,8 @@ class Axes(_AxesBase):
         cap_width = kwargs.pop('cap_width', 8)
         cap_color = kwargs.pop('cap_color', bullet_color)
         labels = kwargs.pop('label', [None]*m)
-
+        
+        #assign color to bullet chart 
         bar_color = list(map(lambda x:x, mcolors.to_rgba_array(bar_color)))
         bar_color += [None]*(m-len(bar_color))
         bar_height = zip(*bar_height)
@@ -2201,7 +2263,8 @@ class Axes(_AxesBase):
             self.bar(bar_x, bullet_height, bullet_width, color = bullet_color)
         if cap_height:
             self.errorbar(bar_x, cap_height, yerr=0, xerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
-            
+        
+        
         if (labels[0]) : 
             self.legend()
         return 
