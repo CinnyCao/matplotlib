@@ -360,23 +360,31 @@ class Table(Artist):
         return bbox.inverse_transformed(self.get_transform())
 
     def containedCell(self, mouseevent):
-        """Test whether the mouse event occurred in the table.
+        """Find whether the mouse event occurred inside any of the table cells
+        and return related location info if a such cell is found.
 
-        Returns T/F, {}
+        Returns box, cell, r, c
+        box: box that corresponding to the cell
+             None if not found
+        cell: Cell object in which the mouse event occurred
+              None if not found
+        r: row index of that cell (starting at 0)
+           -1 if not found
+        c: column index of that cell (starting at 0)
+           -1 if not found
         """
         if callable(self._contains):
             return self._contains(self, mouseevent)
 
-        # TODO: Return index of the cell containing the cursor so that the user
-        # doesn't have to bind to each one individually.
         renderer = self.figure._cachedRenderer
         if renderer is not None:
-            # exclude the first label row and label col
             for (r, c), cell in six.iteritems(self._cells):
+                # excluding table header cells, usually first row and col
                 if r >= 1 and c >= 0:
                     box = cell.get_window_extent(renderer)
                     if box.contains(mouseevent.x, mouseevent.y):
                         return box, cell, r, c
+                    
         return None, None, -1, -1
 
     def contains(self, mouseevent):
@@ -596,12 +604,15 @@ class Table(Artist):
         return self._cells
 
     def enable_markerPicker(self, markerPicker):
+        """Connect click event to the table to draw markers by clicking"""
         if markerPicker:
             self.figure.canvas.mpl_connect(
                 'button_press_event',
                 lambda event: self.draw_marker(event, markerPicker))
 
     def draw_marker(self, event, markerPicker):
+        """Draw marker in the cell clicked
+        """
         pickedMarker = markerPicker.get_pickedMarker()
         if pickedMarker:
             if isinstance(pickedMarker, dict):
@@ -621,52 +632,57 @@ class Table(Artist):
 
 
 class MarkerPickerTable(Table):
+    """
+    Create a table of clickable cells.
+    
+    Each row represent a marker which can be selected to draw on other tables.
+    """
+    
     def __init__(self, ax, markerOptions, colLabels=None, *arg, **kwargs):
+        """
+        
+        Parameters
+        ----------
+        ax : ax
+            
+        markerOptions : list of list - [[marker, description]]
+            List of markers that can be selected to draw
+            marker is Object from maplotlib.markers
+            
+        colLabels : list of str
+            Texts for cells in row header.
+            
+        -------
+        """
         Table.__init__(self, ax, *arg, **kwargs)
         if colLabels:
             self._colLabels = colLabels
         else:
             self._colLabels = ['marker style', 'note']
         self.set_markerOptions(markerOptions)
+        # set first marker as default picked marker
         self.set_pickedMarker()
         self.figure.canvas.mpl_connect(
             'button_press_event', self.select_marker)
 
     def set_markerOptions(self, markerOptions):
+        """
+        Populate table with marker options given
+        Each marker has its own row
+        """
         self._markerOptions = markerOptions
-        # add eraser option
-        # self._markerOptions.append(["Eraser", "Erase the marker."])
-        # renderer = self.figure._cachedRenderer
         height = self._approx_text_height()
         cols = len(markerOptions[0])
         colWidths = [1.0 / cols] * cols
         optionsNum = len(self._markerOptions)
-        # Add the cells
+        # add marker options; each row is one marker
         for index in range(optionsNum):
             for col in range(2):
                 self.add_cell(index+1, col,
                               width=colWidths[col], height=height,
                               text=self._markerOptions[index][col],
                               loc='center')
-        # cellText = "" if col == 0 else self._markerOptions[index][1]
-        # cell = self.add_cell(index + 1, col, width=colWidths[col],
-        #                      height=height, text=cellText, loc='center')
-        # for (r, c), cell in six.iteritems(self._cells):
-        #     print(cell)
-        #     box = cell.get_window_extent(renderer)
-        #     pickedMarker = self._markerOptions[r-1][0]
-        #     if isinstance(pickedMarker, dict):
-        #         l, b, w, h = box.bounds
-        #         # print(box, cell)
-        #         y = b + (h / 2.0)
-        #         x = l + (w / 2.0)
-        #         inv = self._axes.transData.inverted()
-        #         xdata, ydata = inv.transform((x, y))
-        #         c = self._axes.scatter(
-        #             xdata, ydata, autoscale=False, **pickedMarker)
-        #         c.figure.canvas.draw()
-        #     else:
-        #         raise ValueError('Invalid markers provided.')
+        # add row header; cell contents are from self._colLabels
         for col in range(2):
             self.add_cell(0, col, width=colWidths[col], height=height,
                           text=self._colLabels[col], loc='center')
@@ -675,9 +691,15 @@ class MarkerPickerTable(Table):
         return self._markerOptions
 
     def get_pickedMarker(self):
+        """
+        Return the selected marker
+        """
         return self._markerOptions[self._markerIndex][0]
 
     def set_pickedMarker(self, markerIndex=0):
+        """
+        Select marker given index; color selected marker row to yellow
+        """
         self._markerIndex = markerIndex
         for (r, c), cell in six.iteritems(self._cells):
             if r >= 0 and c >= 0:
@@ -688,6 +710,10 @@ class MarkerPickerTable(Table):
         self.figure.canvas.draw()
 
     def select_marker(self, event):
+        """
+        Find the row being clicked and set the row's corresponding marker
+        as selected
+        """
         bbox, cell, row, col = self.containedCell(event)
         if bbox:
             self.set_pickedMarker(row-1)
@@ -707,7 +733,9 @@ def table(ax,
           cellLoc='right', colWidths=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
-          loc='bottom', bbox=None, edges='closed')
+          loc='bottom', bbox=None, edges='closed',
+          markerOptions=None, canvasTable=None,
+          mpColLabels=None, mpLoc='center')
 
     Factory function to generate a Table instance.
 
