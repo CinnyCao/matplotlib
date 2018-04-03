@@ -378,7 +378,7 @@ class Table(Artist):
 
         renderer = self.figure._cachedRenderer
         if renderer is not None:
-            for (r, c), cell in six.iteritems(self._cells):
+            for (r, c), cell in self._cells.items():
                 # excluding table header cells, usually first row and col
                 if r >= 1 and c >= 0:
                     box = cell.get_window_extent(renderer)
@@ -638,7 +638,7 @@ class MarkerPickerTable(Table):
     Each row represent a marker which can be selected to draw on other tables.
     """
     
-    def __init__(self, ax, markerOptions, colLabels=None, *arg, **kwargs):
+    def __init__(self, ax, markerOptions, highlightColor='y', *arg, **kwargs):
         """
         
         Parameters
@@ -648,20 +648,12 @@ class MarkerPickerTable(Table):
         markerOptions : list of list - [[marker, description]]
             List of markers that can be selected to draw
             marker is Object from maplotlib.markers
-            
-        colLabels : list of str
-            Texts for cells in row header.
-            
+
         -------
         """
         Table.__init__(self, ax, *arg, **kwargs)
-        if colLabels:
-            self._colLabels = colLabels
-        else:
-            self._colLabels = ['marker style', 'note']
+        self._highlightColor = highlightColor
         self.set_markerOptions(markerOptions)
-        # set first marker as default picked marker
-        self.set_pickedMarker()
         self.figure.canvas.mpl_connect(
             'button_press_event', self.select_marker)
 
@@ -671,21 +663,6 @@ class MarkerPickerTable(Table):
         Each marker has its own row
         """
         self._markerOptions = markerOptions
-        height = self._approx_text_height()
-        cols = len(markerOptions[0])
-        colWidths = [1.0 / cols] * cols
-        optionsNum = len(self._markerOptions)
-        # add marker options; each row is one marker
-        for index in range(optionsNum):
-            for col in range(2):
-                self.add_cell(index+1, col,
-                              width=colWidths[col], height=height,
-                              text=self._markerOptions[index][col],
-                              loc='center')
-        # add row header; cell contents are from self._colLabels
-        for col in range(2):
-            self.add_cell(0, col, width=colWidths[col], height=height,
-                          text=self._colLabels[col], loc='center')
 
     def get_markerOptions(self):
         return self._markerOptions
@@ -701,12 +678,12 @@ class MarkerPickerTable(Table):
         Select marker given index; color selected marker row to yellow
         """
         self._markerIndex = markerIndex
-        for (r, c), cell in six.iteritems(self._cells):
+        for (r, c), cell in self._cells.items():
             if r >= 0 and c >= 0:
                 if r == markerIndex+1:
-                    cell.set_facecolor('yellow')
+                    cell.set_facecolor(self._highlightColor)
                 else:
-                    cell.set_facecolor('white')
+                    cell.set_facecolor('w')
         self.figure.canvas.draw()
 
     def select_marker(self, event):
@@ -716,7 +693,7 @@ class MarkerPickerTable(Table):
         """
         bbox, cell, row, col = self.containedCell(event)
         if bbox:
-            self.set_pickedMarker(row-1)
+            self.set_pickedMarker(markerIndex=row-1)
 
 
 def table(ax,
@@ -725,8 +702,7 @@ def table(ax,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
-          markerOptions=None, canvasTable=None,
-          mpColLabels=None, mpLoc='center',
+          markerOptions=None, canvasTable=None, highlightColor="y",
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
@@ -741,111 +717,135 @@ def table(ax,
 
     Thanks to John Gill for providing the class and table.
     """
-    if markerOptions is not None or canvasTable is not None\
-            or mpColLabels is not None:
-        if markerOptions is not None and canvasTable is not None\
-                and len(markerOptions) > 0:
-            table = MarkerPickerTable(ax, markerOptions,
-                                      colLabels=mpColLabels, loc=mpLoc,
-                                      **kwargs)
-            canvasTable.enable_markerPicker(table)
-        else:
-            raise ValueError('No marker options or canvas table provided.')
-
-    else:
+    createMPTable = 1 if markerOptions is not None or canvasTable is not None else 0
+    if not createMPTable:
         if cellColours is None and cellText is None:
             raise ValueError('At least one argument from "cellColours" or '
                              '"cellText" must be provided to create a table.')
-
-        # Check we have some cellText
-        if cellText is None:
-            # assume just colours are needed
-            rows = len(cellColours)
-            cols = len(cellColours[0])
-            cellText = [[''] * cols] * rows
-
-        rows = len(cellText)
-        cols = len(cellText[0])
-        for row in cellText:
-            if len(row) != cols:
-                raise ValueError("Each row in 'cellText' must have {} columns"
-                                 .format(cols))
-
+    else:
+        if markerOptions is None or canvasTable is None or len(markerOptions) <= 0:
+            raise ValueError('No marker options or canvas table provided to'
+                             'create a marker picker table.')
+        if cellText is not None:
+            warnings.warn("Provided CellText would be ignored when"
+                          " creating a marker picker table.")
         if cellColours is not None:
-            if len(cellColours) != rows:
-                raise ValueError("'cellColours' must have {} rows"
-                                 .format(rows))
-            for row in cellColours:
-                if len(row) != cols:
-                    raise ValueError("Each row in 'cellColours' must have {} "
-                                     "columns".format(cols))
-        else:
-            cellColours = ['w' * cols] * rows
-
-        # Set colwidths if not given
-        if colWidths is None:
-            colWidths = [1.0 / cols] * cols
-
-        # Fill in missing information for column
-        # and row labels
-        rowLabelWidth = 0
-        if rowLabels is None:
-            if rowColours is not None:
-                rowLabels = [''] * rows
-                rowLabelWidth = colWidths[0]
-        elif rowColours is None:
-            rowColours = 'w' * rows
-
+            warnings.warn("Provided cellColours would be ignored when"
+                          " creating a marker picker table.")
         if rowLabels is not None:
-            if len(rowLabels) != rows:
-                raise ValueError("'rowLabels' must be of"" length {0}"
-                                 .format(rows))
-
-        # If we have column labels, need to shift
-        # the text and colour arrays down 1 row
-        offset = 1
+            warnings.warn("Provided rowLabels would be ignored when"
+                          " creating a marker picker table.")
         if colLabels is None:
-            if colColours is not None:
-                colLabels = [''] * cols
-            else:
-                offset = 0
-        elif colColours is None:
-            colColours = 'w' * cols
+            colLabels = ['marker style', 'note']
+        if len(colLabels) != 2:
+            raise ValueError('ColLabels should only have two elements.')
+        cellText = markerOptions
 
-        # Set up cell colours if not given
-        if cellColours is None:
-            cellColours = ['w' * cols] * rows
+    # Check we have some cellText
+    if cellText is None:
+        # assume just colours are needed
+        rows = len(cellColours)
+        cols = len(cellColours[0])
+        cellText = [[''] * cols] * rows
 
+    rows = len(cellText)
+    cols = len(cellText[0])
+    for row in cellText:
+        if len(row) != cols:
+            raise ValueError("Each row in 'cellText' must have {} columns"
+                             .format(cols))
+
+    if cellColours is None or createMPTable:
+        cellColours = ['w' * cols] * rows
+    else:
+        if len(cellColours) != rows:
+            raise ValueError("'cellColours' must have {} rows"
+                             .format(rows))
+        for row in cellColours:
+            if len(row) != cols:
+                raise ValueError("Each row in 'cellColours' must have {} "
+                                 "columns".format(cols))
+
+    # Set colwidths if not given
+    if colWidths is None:
+        colWidths = [1.0 / cols] * cols
+
+    # Fill in missing information for column
+    # and row labels
+    rowLabelWidth = 0
+    if rowLabels is None:
+        if rowColours is not None:
+            rowLabels = [''] * rows
+            rowLabelWidth = colWidths[0]
+    elif rowColours is None:
+        rowColours = 'w' * rows
+
+    if rowLabels is not None:
+        if len(rowLabels) != rows:
+            raise ValueError("'rowLabels' must be of"" length {0}"
+                             .format(rows))
+
+    # If we have column labels, need to shift
+    # the text and colour arrays down 1 row
+    offset = 1
+    if colLabels is None:
+        if colColours is not None:
+            colLabels = [''] * cols
+        else:
+            offset = 0
+    elif colColours is None:
+        colColours = 'w' * cols
+
+    if colLabels is not None:
+        if len(colLabels) != cols:
+            raise ValueError("'colLabels' must be of"" length {0}"
+                             .format(cols))
+
+    # Set up cell colours if not given
+    if cellColours is None:
+        cellColours = ['w' * cols] * rows
+
+    if not createMPTable:
         # Now create the table
         table = Table(ax, loc, bbox, **kwargs)
-        table.edges = edges
-        height = table._approx_text_height()
+    else:
+        table = MarkerPickerTable(ax, markerOptions, highlightColor=highlightColor,
+                                  loc=loc, **kwargs)
 
-        # Add the cells
+    table.edges = edges
+    height = table._approx_text_height()
+
+    # Add the cells
+    for row in range(rows):
+        for col in range(cols):
+            table.add_cell(row + offset, col,
+                           width=colWidths[col], height=height,
+                           text=cellText[row][col],
+                           facecolor=cellColours[row][col],
+                           loc=cellLoc)
+
+    # Do column labels
+    if colLabels is not None:
+        for col in range(cols):
+            table.add_cell(0, col,
+                           width=colWidths[col], height=height,
+                           text=colLabels[col], facecolor=colColours[col],
+                           loc=colLoc)
+
+    # Do row labels
+    if rowLabels is not None:
         for row in range(rows):
-            for col in range(cols):
-                table.add_cell(row + offset, col,
-                               width=colWidths[col], height=height,
-                               text=cellText[row][col],
-                               facecolor=cellColours[row][col],
-                               loc=cellLoc)
-        # Do column labels
-        if colLabels is not None:
-            for col in range(cols):
-                table.add_cell(0, col,
-                               width=colWidths[col], height=height,
-                               text=colLabels[col], facecolor=colColours[col],
-                               loc=colLoc)
+            table.add_cell(row + offset, -1,
+                           width=rowLabelWidth or 1e-15, height=height,
+                           text=rowLabels[row], facecolor=rowColours[row],
+                           loc=rowLoc)
+        if rowLabelWidth == 0:
+            table.auto_set_column_width(-1)
 
-        # Do row labels
-        if rowLabels is not None:
-            for row in range(rows):
-                table.add_cell(row + offset, -1,
-                               width=rowLabelWidth or 1e-15, height=height,
-                               text=rowLabels[row], facecolor=rowColours[row],
-                               loc=rowLoc)
-            if rowLabelWidth == 0:
-                table.auto_set_column_width(-1)
+    if createMPTable:
+        # set first marker as default picked marker
+        table.set_pickedMarker()
+        canvasTable.enable_markerPicker(table)
 
     ax.add_table(table)
 
