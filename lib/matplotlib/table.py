@@ -646,7 +646,7 @@ class MarkerPickerTable(Table):
         ----------
         ax : ax
             
-        markerOptions : list of list - [[marker, description]]
+        markerOptions : list of marker
             List of markers that can be selected to draw
             marker is Object from maplotlib.markers
 
@@ -672,7 +672,7 @@ class MarkerPickerTable(Table):
         """
         Return the selected marker
         """
-        return self._markerOptions[self._markerIndex][0]
+        return self._markerOptions[self._markerIndex]
 
     def set_pickedMarker(self, markerIndex=0):
         """
@@ -716,11 +716,7 @@ def table(ax,
     Factory function to generate a Table instance.
 
     Thanks to John Gill for providing the class and table.
-    """
-    if cellColours is None and cellText is None:
-            raise ValueError('At least one argument from "cellColours" or '
-                             '"cellText" must be provided to create a table.')
-        
+    """ 
     createMPTable = 1 if markerOptions is not None or canvasTable is not None else 0
     if createMPTable:
         if markerOptions is None or canvasTable is None or len(markerOptions) <= 0:
@@ -730,37 +726,57 @@ def table(ax,
             warnings.warn("Provided cellColours would be ignored when"
                           " creating a marker picker table.")
 
-    # Check we have some cellText
-    if cellText is None:
-        # assume just colours are needed
-        rows = len(cellColours)
-        cols = len(cellColours[0])
-        cellText = [[''] * cols] * rows
-
-    rows = len(cellText)
-    cols = len(cellText[0])
-    for row in cellText:
-        if len(row) != cols:
-            raise ValueError("Each row in 'cellText' must have {} columns"
-                             .format(cols))
-
-    if cellColours is None or createMPTable:
-        cellColours = ['w' * cols] * rows
-    else:
-        if len(cellColours) != rows:
-            raise ValueError("'cellColours' must have {} rows"
-                             .format(rows))
-        for row in cellColours:
-            if len(row) != cols:
-                raise ValueError("Each row in 'cellColours' must have {} "
-                                 "columns".format(cols))
+    # Allow empty table creation by giving rowLabels and colLabels only
+    if (cellColours is None and cellText is None 
+        and (rowLabels is None or colLabels is None)):
+            raise ValueError('At least one argument from "cellColours" or '
+                             '"cellText" or ("rowLabels" and "colLabels") '
+                             'must be provided to create a table.')
     
-    # ensure cellText/cellColours's row number must be same as markerOptions's
-    # row number
-    if createMPTable:
-        if rows != len(markerOptions):
-            raise ValueError("'cellText' must have {} rows since {} marker"
-                             " options passed".format(len(markerOptions)))            
+    if cellColours is None and cellText is None:
+        rows = len(rowLabels)
+        cols = len(colLabels)
+        cellText = [[''] * cols] * rows
+        cellColours = ['w' * cols] * rows
+        
+        # ensure rowLabels's row number must 
+        # be same as markerOptions's row number        
+        if createMPTable:
+            if rows != len(markerOptions):
+                raise ValueError("'rowLabels' must have {} rows since {} marker"
+                                 " options passed".format(len(markerOptions)))        
+    else:
+        # Check we have some cellText
+        if cellText is None:
+            # assume just colours are needed
+            rows = len(cellColours)
+            cols = len(cellColours[0])
+            cellText = [[''] * cols] * rows
+    
+        rows = len(cellText)
+        cols = len(cellText[0])
+        for row in cellText:
+            if len(row) != cols:
+                raise ValueError("Each row in 'cellText' must have {} columns"
+                                 .format(cols))
+    
+        if cellColours is None or createMPTable:
+            cellColours = ['w' * cols] * rows
+        else:
+            if len(cellColours) != rows:
+                raise ValueError("'cellColours' must have {} rows"
+                                 .format(rows))
+            for row in cellColours:
+                if len(row) != cols:
+                    raise ValueError("Each row in 'cellColours' must have {} "
+                                     "columns".format(cols))
+    
+        # ensure cellText/cellColours's row number must 
+        # be same as markerOptions's row number
+        if createMPTable:
+            if rows != len(markerOptions):
+                raise ValueError("'cellText' must have {} rows since {} marker"
+                                 " options passed".format(len(markerOptions)))
 
     # Set colwidths if not given
     if colWidths is None:
