@@ -699,7 +699,7 @@ class MarkerPickerTable(Table):
 
 def table(ax,
           cellText=None, cellColours=None,
-          cellLoc='right', colWidths=None,
+          cellLoc='right', colWidths=None, colHeight=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
@@ -707,7 +707,7 @@ def table(ax,
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
-          cellLoc='right', colWidths=None,
+          cellLoc='right', colWidths=None, colHeight=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
@@ -826,7 +826,10 @@ def table(ax,
                                   loc=loc, bbox=bbox, **kwargs)
 
     table.edges = edges
-    height = table._approx_text_height()
+    if colHeight is None:
+        height = table._approx_text_height()
+    else:
+        height = colHeight
 
     # Add the cells
     for row in range(rows):
