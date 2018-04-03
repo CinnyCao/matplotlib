@@ -2231,15 +2231,14 @@ class Axes(_AxesBase):
         n = len(bar_height)
         m = max(map(len, bar_height))
         bar_x = np.arange(n)
-        
-        #functools.reduce(lambda x,y: x>=y, li,True)
-        
+                
         #Compare cap height with bar height, throw a warning if cap overflow. 
         if (False in map(lambda t: t[0]>=t[1], zip(map(sum, bar_height),cap_height))):
             warnings.warn("cap is overflowing!")
         
         #Extract parameters 
         bar_height = list(map(lambda li:li+ [0]*(m-len(li)) , bar_height))
+        bar_height = zip(*bar_height)
         bar_width = kwargs.pop('bar_width', .4)
         bar_bottom = kwargs.pop('bar_bottom', [0]*n)
         bar_color = kwargs.pop('color', [None]*m)
@@ -2248,26 +2247,37 @@ class Axes(_AxesBase):
         cap_width = kwargs.pop('cap_width', 8)
         cap_color = kwargs.pop('cap_color', bullet_color)
         labels = kwargs.pop('label', [None]*m)
+        horizontal = kwargs.pop('horizontal', False)        
         
         #assign color to bullet chart 
-        bar_color = list(map(lambda x:x, mcolors.to_rgba_array(bar_color)))
+        bar_color = list(map(lambda x: mcolors.to_rgba_array(x) if x else None, bar_color))
         bar_color += [None]*(m-len(bar_color))
-        bar_height = zip(*bar_height)
-        
-        
+
+        patches = []  
         for (hei,c, label) in zip(bar_height,bar_color, labels):
-            main_bar = self.bar(bar_x, hei, bar_width, bar_bottom, color=c, label=label, **kwargs)
+            if horizontal:
+                main_bar = self.barh(bar_x, hei, bar_width, bar_bottom, color=c, label=label, **kwargs)
+            else:
+                main_bar = self.bar(bar_x, hei, bar_width, bar_bottom, color=c, label=label, **kwargs)
+            patches.append(main_bar)
             bar_bottom = list(map(lambda x,y:x+y, bar_bottom, hei))
            
         if bullet_height:
-            self.bar(bar_x, bullet_height, bullet_width, color = bullet_color)
+            if horizontal:
+                bullet_bar = self.barh(bar_x, bullet_height, bullet_width, color = bullet_color)
+            else:
+                bullet_bar = self.bar(bar_x, bullet_height, bullet_width, color = bullet_color)
+            patches.append(bullet_bar)
+
         if cap_height:
-            self.errorbar(bar_x, cap_height, yerr=0, xerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
-        
-        
-        if (labels[0]) : 
-            self.legend()
-        return 
+            if horizontal:
+                error_bar = self.errorbar(cap_height, bar_x, xerr=0, yerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
+            else:
+                error_bar = self.errorbar(bar_x, cap_height, yerr=0, xerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
+        else:
+            error_bar = None   
+            
+        return BarContainer(patches, error_bar, label = labels)
     
     @docstring.dedent_interpd
     def barh(self, *args, **kwargs):
