@@ -609,6 +609,7 @@ class Table(Artist):
             self.figure.canvas.mpl_connect(
                 'button_press_event',
                 lambda event: self.draw_marker(event, markerPicker))
+            self._marker_history = dict()
 
     def draw_marker(self, event, markerPicker):
         """Draw marker in the cell clicked
@@ -623,10 +624,31 @@ class Table(Artist):
                     x = l + (w / 2.0)
                     inv = self._axes.transData.inverted()
                     xdata, ydata = inv.transform((x, y))
-                    self._axes.plot(xdata, ydata,
-                                    scalex=False, scaley=False,
-                                    **pickedMarker)
+                    
+                    # erase old marker if already exists
+                    if ((col, row) in self._marker_history):
+                        msize = 6
+                        if ("markersize" in self._marker_history[(col, row)]):
+                            msize = self._marker_history[(col, row)]["markersize"]
+                        eraser = dict(color=cell.get_facecolor(),
+                                      marker="s", markersize=msize)
+                        self._axes.plot(xdata, ydata,
+                                        scalex=False, scaley=False,
+                                        **eraser)
+                        
+                    # draw marker or replace marker
+                    if ((col, row) not in self._marker_history
+                        or self._marker_history[(col, row)] != pickedMarker):
+                        self._marker_history[(col, row)] = pickedMarker
+                        self._axes.plot(xdata, ydata,
+                                        scalex=False, scaley=False,
+                                        **pickedMarker)
+                    # remove marker history
+                    else:
+                        self._marker_history.pop((col, row))
+                        
                     self.figure.canvas.draw()
+                    
             else:
                 raise ValueError('Invalid markers provided.')
 
@@ -666,13 +688,13 @@ class MarkerPickerTable(Table):
         self._markerOptions = markerOptions
 
     def get_markerOptions(self):
-        return self._markerOptions
+        return self._markerOptions.copy()
 
     def get_pickedMarker(self):
         """
         Return the selected marker
         """
-        return self._markerOptions[self._markerIndex]
+        return self._markerOptions[self._markerIndex].copy()
 
     def set_pickedMarker(self, markerIndex=0):
         """
@@ -699,7 +721,7 @@ class MarkerPickerTable(Table):
 
 def table(ax,
           cellText=None, cellColours=None,
-          cellLoc='right', colWidths=None, colHeight=None,
+          cellLoc='right', colWidths=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
@@ -707,7 +729,7 @@ def table(ax,
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
-          cellLoc='right', colWidths=None, colHeight=None,
+          cellLoc='right', colWidths=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
@@ -826,10 +848,7 @@ def table(ax,
                                   loc=loc, bbox=bbox, **kwargs)
 
     table.edges = edges
-    if colHeight is None:
-        height = table._approx_text_height()
-    else:
-        height = colHeight
+    height = table._approx_text_height()
 
     # Add the cells
     for row in range(rows):
