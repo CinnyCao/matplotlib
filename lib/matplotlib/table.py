@@ -638,7 +638,8 @@ class MarkerPickerTable(Table):
     Each row represent a marker which can be selected to draw on other tables.
     """
     
-    def __init__(self, ax, markerOptions, highlightColor='y', *arg, **kwargs):
+    def __init__(self, ax, markerOptions, highlightColor='y',
+                 loc=None, bbox=None, **kwargs):
         """
         
         Parameters
@@ -651,7 +652,7 @@ class MarkerPickerTable(Table):
 
         -------
         """
-        Table.__init__(self, ax, *arg, **kwargs)
+        Table.__init__(self, ax, loc, bbox, **kwargs)
         self._highlightColor = highlightColor
         self.set_markerOptions(markerOptions)
         self.figure.canvas.mpl_connect(
@@ -710,36 +711,24 @@ def table(ax,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
-          markerOptions=None, canvasTable=None,
-          mpColLabels=None, mpLoc='center')
+          markerOptions=None, canvasTable=None, highlightColor="y")
 
     Factory function to generate a Table instance.
 
     Thanks to John Gill for providing the class and table.
     """
-    createMPTable = 1 if markerOptions is not None or canvasTable is not None else 0
-    if not createMPTable:
-        if cellColours is None and cellText is None:
+    if cellColours is None and cellText is None:
             raise ValueError('At least one argument from "cellColours" or '
                              '"cellText" must be provided to create a table.')
-    else:
+        
+    createMPTable = 1 if markerOptions is not None or canvasTable is not None else 0
+    if createMPTable:
         if markerOptions is None or canvasTable is None or len(markerOptions) <= 0:
             raise ValueError('No marker options or canvas table provided to'
-                             'create a marker picker table.')
-        if cellText is not None:
-            warnings.warn("Provided CellText would be ignored when"
-                          " creating a marker picker table.")
+                             'create a marker picker table.')          
         if cellColours is not None:
             warnings.warn("Provided cellColours would be ignored when"
                           " creating a marker picker table.")
-        if rowLabels is not None:
-            warnings.warn("Provided rowLabels would be ignored when"
-                          " creating a marker picker table.")
-        if colLabels is None:
-            colLabels = ['marker style', 'note']
-        if len(colLabels) != 2:
-            raise ValueError('ColLabels should only have two elements.')
-        cellText = markerOptions
 
     # Check we have some cellText
     if cellText is None:
@@ -765,6 +754,13 @@ def table(ax,
             if len(row) != cols:
                 raise ValueError("Each row in 'cellColours' must have {} "
                                  "columns".format(cols))
+    
+    # ensure cellText/cellColours's row number must be same as markerOptions's
+    # row number
+    if createMPTable:
+        if rows != len(markerOptions):
+            raise ValueError("'cellText' must have {} rows since {} marker"
+                             " options passed".format(len(markerOptions)))            
 
     # Set colwidths if not given
     if colWidths is None:
@@ -804,13 +800,14 @@ def table(ax,
     # Set up cell colours if not given
     if cellColours is None:
         cellColours = ['w' * cols] * rows
-
+        
+    # Now create the table
     if not createMPTable:
-        # Now create the table
         table = Table(ax, loc, bbox, **kwargs)
     else:
-        table = MarkerPickerTable(ax, markerOptions, highlightColor=highlightColor,
-                                  loc=loc, **kwargs)
+        table = MarkerPickerTable(ax, markerOptions, 
+                                  highlightColor=highlightColor,
+                                  loc=loc, bbox=bbox, **kwargs)
 
     table.edges = edges
     height = table._approx_text_height()
