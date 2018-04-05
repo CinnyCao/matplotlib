@@ -41,7 +41,8 @@ class Cell(Rectangle):
                  fill=True,
                  text='',
                  loc=None,
-                 fontproperties=None
+                 fontproperties=None,
+                 isLabel=False
                  ):
 
         # Call base
@@ -56,6 +57,14 @@ class Cell(Rectangle):
         self._text = Text(x=xy[0], y=xy[1], text=text,
                           fontproperties=fontproperties)
         self._text.set_clip_on(False)
+        self._isLabel = isLabel
+
+    def set_isLabel(self, isLabel):
+        # set isLabel to True if cell is colLabel or rowLabel
+        self._isLabel = isLabel
+
+    def get_isLabel(self):
+        return self._isLabel
 
     def set_transform(self, trans):
         Rectangle.set_transform(self, trans)
@@ -260,6 +269,7 @@ class Table(Artist):
         self.set_transform(ax.transAxes)
 
         self._texts = []
+        self._labels = []
         self._cells = {}
         self._edges = None
         self._autoRows = []
@@ -269,7 +279,7 @@ class Table(Artist):
 
         self.set_clip_on(False)
 
-    def add_cell(self, row, col, *args, **kwargs):
+    def add_cell(self, row, col, isLabel=False, *args, **kwargs):
         """
         Add a cell to the table.
 
@@ -286,7 +296,8 @@ class Table(Artist):
 
         """
         xy = (0, 0)
-        cell = CustomCell(xy, visible_edges=self.edges, *args, **kwargs)
+        cell = CustomCell(xy, isLabel=isLabel,
+                          visible_edges=self.edges, *args, **kwargs)
         self[row, col] = cell
         return cell
 
@@ -380,7 +391,7 @@ class Table(Artist):
         if renderer is not None:
             for (r, c), cell in self._cells.items():
                 # excluding table header cells, usually first row and col
-                if r >= 1 and c >= 0:
+                if not cell.get_isLabel():
                     box = cell.get_window_extent(renderer)
                     if box.contains(mouseevent.x, mouseevent.y):
                         return box, cell, r, c
@@ -710,7 +721,7 @@ class MarkerPickerTable(Table):
         """
         self._markerIndex = markerIndex
         for (r, c), cell in self._cells.items():
-            if r >= 0 and c >= 0:
+            if not cell.get_isLabel():
                 if r == markerIndex+1:
                     cell.set_facecolor(self._highlightColor)
                 else:
@@ -733,7 +744,7 @@ class MarkerPickerTable(Table):
         if self._draw_marker:
             self._draw_marker = False
             for (r, c), cell in self._cells.items():
-                if r >= 1 and c == 0:
+                if not cell.get_isLabel() and c == 0:
                     marker = self.get_markerOptions()[r-1]
                     bbox = cell.get_window_extent(renderer)
                     l, b, w, h = bbox.bounds
@@ -927,7 +938,7 @@ def table(ax,
             table.add_cell(0, col,
                            width=colWidths[col], height=height,
                            text=colLabels[col], facecolor=colColours[col],
-                           loc=colLoc)
+                           loc=colLoc, isLabel=True)
 
     # Do row labels
     if rowLabels is not None:
@@ -935,7 +946,7 @@ def table(ax,
             table.add_cell(row + offset, -1,
                            width=rowLabelWidth or 1e-15, height=height,
                            text=rowLabels[row], facecolor=rowColours[row],
-                           loc=rowLoc)
+                           loc=rowLoc, isLabel=True)
         if rowLabelWidth == 0:
             table.auto_set_column_width(-1)
 
