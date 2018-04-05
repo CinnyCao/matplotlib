@@ -778,14 +778,27 @@ def table(ax,
         if cellColours is not None:
             warnings.warn("Provided cellColours would be ignored when"
                           " creating a marker picker table.")
+        # use default colLabel for markers column if no cellText is provided
+        if colLabels is None and cellText is None:
+            colLabels = ["Markers"]
+        elif colLabels is None and cellText is not None:
+            raise ValueError("colLabels must be provided if cellText is "
+                             "provided when creating a marker picker table.")
         # if drawMarker, insert marker col in first col
         if drawMarker:
             if cellColours is not None:
                 cellColours = [["w"] + r for r in cellColours]
             if cellText is not None:
                 cellText = [[""] + r for r in cellText]
-            if colLabels is not None:
-                colLabels.insert(0, "Markers")
+            # if colLabels is not None:
+            #     colLabels.insert(0, "Markers")
+        elif cellColours is None and cellText is None and\
+                rowLabels is None and colLabels is None:
+            raise ValueError('At least one argument from "cellColours" or '
+                             '"cellText" or "rowLabels" or "colLabels" '
+                             'must be provided to create a '
+                             'marker picker table.')
+
     else:
         # Allow empty table creation by giving rowLabels and colLabels only
         if cellColours is None and cellText is None and\
@@ -793,21 +806,16 @@ def table(ax,
             raise ValueError('At least one argument from "cellColours" or '
                              '"cellText" or ("rowLabels" and "colLabels") '
                              'must be provided to create a table.')
-    if createMPTable and not drawMarker:
-        if cellColours is None and cellText is None and\
-                rowLabels is None and colLabels is None:
-            raise ValueError('At least one argument from "cellColours" or '
-                             '"cellText" or "rowLabels" or "colLabels" '
-                             'must be provided to create a '
-                             'marker picker table.')
 
     if cellColours is None and cellText is None:
-        if createMPTable and rowLabels is None:
-            rows = len(markerOptions)
-        else:
-            rows = len(rowLabels)
-        if createMPTable and colLabels is None:
-            colLabels = ["Markers"]
+        rows = len(markerOptions) if createMPTable and rowLabels is None\
+            else len(rowLabels)
+        # if createMPTable and rowLabels is None:
+        #     rows = len(markerOptions)
+        # else:
+        #     rows = len(rowLabels)
+        # if createMPTable and colLabels is None:
+        #     colLabels = ["Markers"]
         cols = len(colLabels)
         cellText = [[''] * cols] * rows
         cellColours = ['w' * cols] * rows
@@ -851,8 +859,8 @@ def table(ax,
             if rows != len(markerOptions):
                 raise ValueError("'cellText' must have {} rows since {} marker"
                                  " options passed".format(len(markerOptions)))
-            if colLabels is None:
-                colLabels = ["Markers"] + [""]*(cols-1)
+            # if colLabels is None:
+            #     colLabels = ["Markers"] + [""]*(cols-1)
 
     # Set colwidths if not given
     if colWidths is None:
