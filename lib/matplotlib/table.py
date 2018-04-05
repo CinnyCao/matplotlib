@@ -660,7 +660,7 @@ class MarkerPickerTable(Table):
     Each row represent a marker which can be selected to draw on other tables.
     """
     
-    def __init__(self, ax, markerOptions, highlightColor='y',
+    def __init__(self, ax, markerOptions, drawMarker=True, highlightColor='y',
                  loc=None, bbox=None, **kwargs):
         """
         
@@ -672,6 +672,12 @@ class MarkerPickerTable(Table):
             List of markers that can be selected to draw
             marker is Object from maplotlib.markers
 
+        drawMarker : Boolean
+            If True, a demo of the markers will be draw in first column
+        
+        highlightColor : color
+            Color of the highlighter for selected row
+            
         -------
         """
         Table.__init__(self, ax, loc, bbox, **kwargs)
@@ -679,6 +685,7 @@ class MarkerPickerTable(Table):
         self.set_markerOptions(markerOptions)
         self.figure.canvas.mpl_connect(
             'button_press_event', self.select_marker)
+        self._draw_marker = drawMarker
 
     def set_markerOptions(self, markerOptions):
         """
@@ -705,6 +712,7 @@ class MarkerPickerTable(Table):
             if r >= 0 and c >= 0:
                 if r == markerIndex+1:
                     cell.set_facecolor(self._highlightColor)
+                    cell.set_alpha(0.5)
                 else:
                     cell.set_facecolor('w')
         self.figure.canvas.draw()
@@ -718,14 +726,34 @@ class MarkerPickerTable(Table):
         if bbox:
             self.set_pickedMarker(markerIndex=row-1)
 
-
+    @allow_rasterization
+    def draw(self, renderer):
+        Table.draw(self, renderer)
+        # draw markers options
+        if (self._draw_marker == True):
+            self._draw_marker = False
+            for (r, c), cell in self._cells.items():
+                if r >= 1 and c == 0:
+                    marker = self.get_markerOptions()[r-1]
+                    bbox = cell.get_window_extent(renderer)
+                    l, b, w, h = bbox.bounds
+                    y = b + (h / 2.0)
+                    x = l + (w / 2.0)
+                    inv = self._axes.transData.inverted()
+                    xdata, ydata = inv.transform((x, y))            
+                    self._axes.plot(xdata, ydata,
+                                    scalex=False, scaley=False,
+                                    **marker)
+                    self.figure.canvas.draw()
+        
 def table(ax,
           cellText=None, cellColours=None,
           cellLoc='right', colWidths=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
-          markerOptions=None, canvasTable=None, highlightColor="y",
+          markerOptions=None, canvasTable=None, 
+          drawMarker=True, highlightColor="y",
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
@@ -747,7 +775,7 @@ def table(ax,
         if cellColours is not None:
             warnings.warn("Provided cellColours would be ignored when"
                           " creating a marker picker table.")
-
+    
     # Allow empty table creation by giving rowLabels and colLabels only
     if (cellColours is None and cellText is None 
         and (rowLabels is None or colLabels is None)):
@@ -843,7 +871,7 @@ def table(ax,
     if not createMPTable:
         table = Table(ax, loc, bbox, **kwargs)
     else:
-        table = MarkerPickerTable(ax, markerOptions, 
+        table = MarkerPickerTable(ax, markerOptions, drawMarker=drawMarker,
                                   highlightColor=highlightColor,
                                   loc=loc, bbox=bbox, **kwargs)
 
