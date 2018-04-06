@@ -682,7 +682,7 @@ class MarkerPickerTable(Table):
 
         markerOptions : list of marker
             List of markers that can be selected to draw
-            Marker is Object from maplotlib.markers
+            Marker is Object from matplotlib.markers
 
         drawMarker : Boolean
             If True, a demo of the markers will be draw in first column
@@ -720,7 +720,8 @@ class MarkerPickerTable(Table):
 
     def set_pickedMarker(self, markerIndex=0):
         """
-        Select marker given index; color the selected marker row to yellow
+        Select marker given index; color the selected marker row to
+        the highlightColor
         """
         self._markerIndex = markerIndex
         for (r, c), cell in self._cells.items():
