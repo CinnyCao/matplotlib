@@ -867,7 +867,6 @@ def table(ax,
 
     # Fill in missing information for column
     # and row labels
-    rowLabelWidth = 0
     if rowLabels is None:
         if rowColours is not None:
             rowLabels = [''] * rows
@@ -935,8 +934,9 @@ def table(ax,
                            width=rowLabelWidth or 1e-15, height=height,
                            text=rowLabels[row], facecolor=rowColours[row],
                            loc=rowLoc, isLabel=True)
-        if rowLabelWidth == 0:
-            table.auto_set_column_width(-1)
+
+    if createMPTable or rowLabels is None:
+        table.auto_set_column_width(-1)
 
     if createMPTable:
         # set first marker as default picked marker
