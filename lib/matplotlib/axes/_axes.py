@@ -2188,44 +2188,42 @@ class Axes(_AxesBase):
         
         Parameters
         ----------
-        bar_height : scalar or sequence of scalars
-            The height(s) of the bar.
+        bar_height : sequence of sequence of scalars
+            represent the heights of the stack bars.
             
-        bullet_height : scalar or array-like
-           The height(s) of the bullet line.
+        bullet_height : sequence of scalars
+           The heights of the bullet line.
            
-        cap_height : scalar or array-like, 
-           The height(s) of the cap on bullet chart. 
-           cap_height > bar_height will throw warning.
+        cap_height : sequence of scalars
+           The heights of the cap on bullet chart. 
+           cap_height > bar_height will throw a warning.
            
-        bar_width : scalar or array-like, optional
-           The width(s) of the bars (default: 0.4).
+        bar_width : scalar, optional
+           The width of the bars (default: 0.4).
         
-        bar_bottom : scalar or array-like, optional
-           The y coordinate(s) of the bars bases (default: 0).
+        bar_bottom : sequence of scalars, optional
+           The y coordinates of the bars bases (default: zeros).
         
-        bar_color : scalar or array-like, optional
+        bar_color : sequence of colors, optional
            The colors of the bar faces (default: None).
         
-        bullet_width: scalar or array-like, optional
-           The width(s) of the bullet (default: bar_width/4).
+        bullet_width: scalar, optional
+           The width of the bullet bar (default: bar_width/4).
             
-        bullet_color: scalar or array-like, optional
-           The colors of the bullet faces (default: black).
+        bullet_color: color, optional
+           The color of the bullet faces (default: black).
            
-        cap_width: scalar or array-like, optional
-           The width(s) of the cap (default: 8)
+        cap_width: scalar, optional
+           The width of the cap (default: 8)
            
-        cap_color: scalar or array-like, optional
-           The colors of the cap faces (default: bullet_color).
+        cap_color: scalar, optional
+           The color of the cap faces (default: same as bullet_color).
         
-        label: string or array-like, optional
-           The label(s) of the bullet chart (default: none)
-        
-        See also
-        --------
-        bulleth: Plot a horizontal bullet chart. 
-        
+        label: sequence of strings, optional
+           The labels of each level of the chart (default: None)
+
+        horizontal: boolean, optional 
+            set the direction of chart horizontal (default: False)
         """
         
         n = len(bar_height)
