@@ -2126,6 +2126,116 @@ class Axes(_AxesBase):
         return bar_container
 
     @docstring.dedent_interpd
+    def bullet(self, bar_height, bullet_height, cap_height, **kwargs):
+        
+        """
+        Make a bullet chart.
+
+        Call signatures::
+
+           bar(bar_height, bullet_height, cap_height, **kwargs)
+        
+        The dimension of bar is given by *bar_width* and *bar_height*. 
+        The vertical baseline is *bar_bottom* (default 0).
+        
+        The dimension of bullet is given by 
+        *bullet_width* (default: bar_width/4) and  *bullet_height*.
+        
+        The dimension of cap is given by *cap_height*
+        
+        
+        Parameters
+        ----------
+        bar_height : sequence of sequence of scalars
+            represent the heights of the stack bars.
+            
+        bullet_height : sequence of scalars
+           The heights of the bullet line.
+           
+        cap_height : sequence of scalars
+           The heights of the cap on bullet chart. 
+           cap_height > bar_height will throw a warning.
+           
+        bar_width : scalar, optional
+           The width of the bars (default: 0.4).
+        
+        bar_bottom : sequence of scalars, optional
+           The y coordinates of the bars bases (default: zeros).
+        
+        bar_color : sequence of colors, optional
+           The colors of the bar faces (default: None).
+        
+        bullet_width: scalar, optional
+           The width of the bullet bar (default: bar_width/4).
+            
+        bullet_color: color, optional
+           The color of the bullet faces (default: black).
+           
+        cap_width: scalar, optional
+           The width of the cap (default: 8)
+           
+        cap_color: scalar, optional
+           The color of the cap faces (default: same as bullet_color).
+        
+        label: sequence of strings, optional
+           The labels of each level of the chart (default: None)
+
+        horizontal: boolean, optional 
+            set the direction of chart horizontal (default: False)
+        """
+        
+        n = len(bar_height)
+        m = max(map(len, bar_height))
+        bar_x = np.arange(n)
+                
+        #Compare cap height with bar height, throw a warning if cap overflow. 
+        if (False in map(lambda t: t[0]>=t[1], zip(map(sum, bar_height),cap_height))):
+            warnings.warn("cap is overflowing!")
+        
+        #Extract parameters 
+        bar_height = list(map(lambda li:li+ [0]*(m-len(li)) , bar_height))
+        bar_height = zip(*bar_height)
+        bar_width = kwargs.pop('bar_width', .4)
+        bar_bottom = kwargs.pop('bar_bottom', [0]*n)
+        bar_color = kwargs.pop('color', [None]*m)
+        bullet_width = kwargs.pop('bullet_width', bar_width/4)
+        bullet_color = kwargs.pop('bullet_color', "black")
+        cap_width = kwargs.pop('cap_width', 8)
+        cap_color = kwargs.pop('cap_color', bullet_color)
+        labels = kwargs.pop('label', [None]*m)
+        horizontal = kwargs.pop('horizontal', False)        
+        
+        #assign color to bullet chart 
+        bar_color = list(map(lambda x: mcolors.to_rgba_array(x) if x else None, bar_color))
+        bar_color += [None]*(m-len(bar_color))
+
+        patches = []  
+        for (hei,c, label) in zip(bar_height,bar_color, labels):
+            if horizontal:
+                main_bar = self.barh(bar_x, hei, bar_width, bar_bottom, color=c, label=label, **kwargs)
+            else:
+                main_bar = self.bar(bar_x, hei, bar_width, bar_bottom, color=c, label=label, **kwargs)
+            patches.append(main_bar)
+            bar_bottom = list(map(lambda x,y:x+y, bar_bottom, hei))
+           
+        if bullet_height:
+            if horizontal:
+                bullet_bar = self.barh(bar_x, bullet_height, bullet_width, color = bullet_color)
+            else:
+                bullet_bar = self.bar(bar_x, bullet_height, bullet_width, color = bullet_color)
+            patches.append(bullet_bar)
+
+        if cap_height:
+            if horizontal:
+                error_bar = self.errorbar(cap_height, bar_x, xerr=0, yerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
+            else:
+                error_bar = self.errorbar(bar_x, cap_height, yerr=0, xerr=None, fmt='none', ecolor=cap_color, capsize=cap_width, label='_nolegend_')
+        else:
+            error_bar = None   
+            
+        return BarContainer(patches, error_bar, label = labels)
+    
+    @docstring.dedent_interpd
     def barh(self, *args, **kwargs):
         r"""
         Make a horizontal bar plot.
