@@ -25,6 +25,7 @@ import logging
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -408,27 +409,9 @@ class MovieWriter(AbstractMovieWriter):
     @classmethod
     def isAvailable(cls):
         '''
-        Check to see if a MovieWriter subclass is actually available by
-        running the commandline tool.
+        Check to see if a MovieWriter subclass is actually available.
         '''
-        bin_path = cls.bin_path()
-        if not bin_path:
-            return False
-        try:
-            p = subprocess.Popen(
-                bin_path,
-                shell=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=subprocess_creation_flags)
-            return cls._handle_subprocess(p)
-        except OSError:
-            return False
-
-    @classmethod
-    def _handle_subprocess(cls, process):
-        process.communicate()
-        return True
+        return shutil.which(cls.bin_path()) is not None
 
 
 class FileMovieWriter(MovieWriter):
@@ -633,13 +616,14 @@ class FFMpegBase(object):
         return args + ['-y', self.outfile]
 
     @classmethod
-    def _handle_subprocess(cls, process):
-        _, err = process.communicate()
-        # Ubuntu 12.04 ships a broken ffmpeg binary which we shouldn't use
-        # NOTE : when removed, remove the same method in AVConvBase.
-        if 'Libav' in err.decode():
-            return False
-        return True
+    def isAvailable(cls):
+        return (
+            super().isAvailable()
+            # Ubuntu 12.04 ships a broken ffmpeg binary which we shouldn't use.
+            # NOTE: when removed, remove the same method in AVConvBase.
+            and b'LibAv' not in subprocess.run(
+                [cls.bin_path()], creationflags=subprocess_creation_flags,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE).stderr)
 
 
 # Combine FFMpeg options with pipe-based writing
@@ -697,9 +681,7 @@ class AVConvBase(FFMpegBase):
     args_key = 'animation.avconv_args'
 
     # NOTE : should be removed when the same method is removed in FFMpegBase.
-    @classmethod
-    def _handle_subprocess(cls, process):
-        return MovieWriter._handle_subprocess(process)
+    isAvailable = classmethod(MovieWriter.isAvailable.__func__)
 
 
 # Combine AVConv options with pipe-based writing
@@ -745,7 +727,7 @@ class ImageMagickBase(object):
     def _init_from_registry(cls):
         if sys.platform != 'win32' or rcParams[cls.exec_key] != 'convert':
             return
-        from six.moves import winreg
+        import winreg
         for flag in (0, winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY):
             try:
                 hkey = winreg.OpenKeyEx(winreg.HKEY_LOCAL_MACHINE,
@@ -771,8 +753,6 @@ class ImageMagickBase(object):
         if bin_path == "convert":
             cls._init_from_registry()
         return super().isAvailable()
-
-ImageMagickBase._init_from_registry()
 
 
 # Note: the base classes need to be in that order to get
@@ -1627,8 +1607,10 @@ class FuncAnimation(TimedAnimation):
        of frames is completed.  Defaults to ``True``.
 
     blit : bool, optional
-       Controls whether blitting is used to optimize drawing.  Defaults
-       to ``False``.
+       Controls whether blitting is used to optimize drawing. Note: when using
+       blitting any animated artists will be drawn according to their zorder.
+       However, they will be drawn on top of any previous artists, regardless
+       of their zorder.  Defaults to ``False``.
 
     '''
     def __init__(self, fig, func, frames=None, init_func=None, fargs=None,
@@ -1743,7 +1725,8 @@ class FuncAnimation(TimedAnimation):
 
         # Call the func with framedata and args. If blitting is desired,
         # func needs to return a sequence of any artists that were modified.
-        self._drawn_artists = self._func(framedata, *self._args)
+        self._drawn_artists = sorted(self._func(framedata, *self._args),
+                                     key=lambda x: x.get_zorder())
         if self._blit:
             if self._drawn_artists is None:
                 raise RuntimeError('The animation function must return a '

@@ -1,7 +1,3 @@
-from __future__ import absolute_import, division, print_function
-
-import six
-
 import io
 import warnings
 
@@ -14,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.testing.decorators import image_comparison
 
 
-needs_usetex = pytest.mark.xfail(
+needs_usetex = pytest.mark.skipif(
     not matplotlib.checkdep_usetex(True),
     reason="This test needs a TeX installation")
 
@@ -439,7 +435,7 @@ def test_two_2line_texts(spacing1, spacing2):
 
     # line spacing only affects height
     assert box1.width == box2.width
-    if (spacing1 == spacing2):
+    if spacing1 == spacing2:
         assert box1.height == box2.height
     else:
         assert box1.height != box2.height
@@ -496,3 +492,10 @@ def test_text_as_text_opacity():
     plt.text(0.25, 0.5, '50% using `alpha`', alpha=0.5)
     plt.text(0.25, 0.75, '50% using `alpha` and 100% `color`', alpha=0.5,
              color=(0, 0, 0, 1))
+
+
+def test_text_repr():
+    # smoketest to make sure text repr doesn't error for category
+    plt.plot(['A', 'B'], [1, 2])
+    txt = plt.text(['A'], 0.5, 'Boo')
+    print(txt)

@@ -240,7 +240,34 @@ class _ColorbarAutoLocator(ticker.MaxNLocator):
     def tick_values(self, vmin, vmax):
         vmin = max(vmin, self._colorbar.norm.vmin)
         vmax = min(vmax, self._colorbar.norm.vmax)
-        return ticker.MaxNLocator.tick_values(self, vmin, vmax)
+        ticks = ticker.MaxNLocator.tick_values(self, vmin, vmax)
+        return ticks[(ticks >= vmin) & (ticks <= vmax)]
+
+
+class _ColorbarAutoMinorLocator(ticker.AutoMinorLocator):
+    """
+    AutoMinorLocator for Colorbar
+
+    This locator is just a `.AutoMinorLocator` except the min and max are
+    clipped by the norm's min and max (i.e. vmin/vmax from the
+    image/pcolor/contour object).  This is necessary so that the minorticks
+    don't extrude into the "extend regions".
+    """
+
+    def __init__(self, colorbar, n=None):
+        """
+        This ticker needs to know the *colorbar* so that it can access
+        its *vmin* and *vmax*.
+        """
+        self._colorbar = colorbar
+        self.ndivs = n
+        ticker.AutoMinorLocator.__init__(self, n=None)
+
+    def __call__(self):
+        vmin = self._colorbar.norm.vmin
+        vmax = self._colorbar.norm.vmax
+        ticks = ticker.AutoMinorLocator.__call__(self)
+        return ticks[(ticks >= vmin) & (ticks <= vmax)]
 
 
 class _ColorbarLogLocator(ticker.LogLocator):
@@ -801,8 +828,9 @@ class ColorbarBase(cm.ScalarMappable):
 
             b = self.norm.inverse(self._uniform_y(self.cmap.N + 1))
 
-            if isinstance(self.norm, colors.LogNorm):
-                # If using a lognorm, ensure extensions don't go negative
+            if isinstance(self.norm, (colors.PowerNorm, colors.LogNorm)):
+                # If using a lognorm or powernorm, ensure extensions don't
+                # go negative
                 if self._extend_lower():
                     b[0] = 0.9 * b[0]
                 if self._extend_upper():
@@ -855,8 +883,7 @@ class ColorbarBase(cm.ScalarMappable):
         if isinstance(frac, str):
             if frac.lower() == 'auto':
                 # Use the provided values when 'auto' is required.
-                extendlength[0] = automin
-                extendlength[1] = automax
+                extendlength[:] = [automin, automax]
             else:
                 # Any other string is invalid.
                 raise ValueError('invalid value for extendfrac')
@@ -1164,6 +1191,33 @@ class Colorbar(ColorbarBase):
             # use_gridspec was True
             ax.set_subplotspec(subplotspec)
 
+    def minorticks_on(self):
+        """
+        Turns on the minor ticks on the colorbar without extruding
+        into the "extend regions".
+        """
+        ax = self.ax
+        long_axis = ax.yaxis if self.orientation == 'vertical' else ax.xaxis
+
+        if long_axis.get_scale() == 'log':
+            warnings.warn('minorticks_on() has no effect on a '
+                          'logarithmic colorbar axis')
+        else:
+            long_axis.set_minor_locator(_ColorbarAutoMinorLocator(self))
+
+    def minorticks_off(self):
+        """
+        Turns off the minor ticks on the colorbar.
+        """
+        ax = self.ax
+        long_axis = ax.yaxis if self.orientation == 'vertical' else ax.xaxis
+
+        if long_axis.get_scale() == 'log':
+            warnings.warn('minorticks_off() has no effect on a '
+                          'logarithmic colorbar axis')
+        else:
+            long_axis.set_minor_locator(ticker.NullLocator())
+
 
 @docstring.Substitution(make_axes_kw_doc)
 def make_axes(parents, location=None, orientation=None, fraction=0.15,
@@ -1286,7 +1340,7 @@ def make_axes(parents, location=None, orientation=None, fraction=0.15,
 
     # transform each of the axes in parents using the new transform
     for ax in parents:
-        new_posn = shrinking_trans.transform(ax.get_position())
+        new_posn = shrinking_trans.transform(ax.get_position(original=True))
         new_posn = mtransforms.Bbox(new_posn)
         ax._set_position(new_posn)
         if parent_anchor is not False:
@@ -1323,7 +1377,7 @@ def make_axes(parents, location=None, orientation=None, fraction=0.15,
 
 
 @docstring.Substitution(make_axes_kw_doc)
-def make_axes_gridspec(parent, **kw):
+def make_axes_gridspec(parent, *, fraction=0.15, shrink=1.0, aspect=20, **kw):
     '''
     Resize and reposition a parent axes, and return a child axes
     suitable for a colorbar. This function is similar to
@@ -1359,10 +1413,6 @@ def make_axes_gridspec(parent, **kw):
 
     orientation = kw.setdefault('orientation', 'vertical')
     kw['ticklocation'] = 'auto'
-
-    fraction = kw.pop('fraction', 0.15)
-    shrink = kw.pop('shrink', 1.0)
-    aspect = kw.pop('aspect', 20)
 
     x1 = 1 - fraction
 

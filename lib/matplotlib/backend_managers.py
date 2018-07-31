@@ -22,7 +22,7 @@ class ToolEvent(object):
 
 
 class ToolTriggerEvent(ToolEvent):
-    """Event to inform  that a tool has been triggered"""
+    """Event to inform that a tool has been triggered"""
     def __init__(self, name, sender, tool, canvasevent=None, data=None):
         ToolEvent.__init__(self, name, sender, tool, data)
         self.canvasevent = canvasevent
@@ -42,7 +42,7 @@ class ToolManagerMessageEvent(object):
 
 class ToolManager(object):
     """
-    Helper class that groups all the user interactions for a Figure
+    Helper class that groups all the user interactions for a Figure.
 
     Attributes
     ----------
@@ -90,12 +90,12 @@ class ToolManager(object):
 
     def set_figure(self, figure, update_tools=True):
         """
-        Sets the figure to interact with the tools
+        Bind the given figure to the tools.
 
         Parameters
-        ==========
-        figure: `Figure`
-        update_tools: bool
+        ----------
+        figure : `.Figure`
+        update_tools : bool
             Force tools to update figure
         """
         if self._key_press_handler_id:

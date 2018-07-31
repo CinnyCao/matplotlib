@@ -18,7 +18,7 @@ def test_bar3d():
         ys = np.arange(20)
         cs = [c] * len(xs)
         cs[0] = 'c'
-        ax.bar(xs, ys, zs=z, zdir='y', color=cs, alpha=0.8)
+        ax.bar(xs, ys, zs=z, zdir='y', align='edge', color=cs, alpha=0.8)
 
 
 @image_comparison(
@@ -55,7 +55,8 @@ def test_bar3d_notshaded():
     fig.canvas.draw()
 
 
-@image_comparison(baseline_images=['contour3d'], remove_text=True)
+@image_comparison(baseline_images=['contour3d'],
+                  remove_text=True, style='mpl20')
 def test_contour3d():
     fig = plt.figure()
     ax = fig.gca(projection='3d')
@@ -199,6 +200,21 @@ def test_surface3d():
                            lw=0, antialiased=False)
     ax.set_zlim(-1.01, 1.01)
     fig.colorbar(surf, shrink=0.5, aspect=5)
+
+
+@image_comparison(baseline_images=['surface3d_shaded'], remove_text=True,
+                  extensions=['png'])
+def test_surface3d_shaded():
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    X = np.arange(-5, 5, 0.25)
+    Y = np.arange(-5, 5, 0.25)
+    X, Y = np.meshgrid(X, Y)
+    R = np.sqrt(X ** 2 + Y ** 2)
+    Z = np.sin(R)
+    surf = ax.plot_surface(X, Y, Z, rstride=5, cstride=5,
+                           color=[0.25, 1, 0.25], lw=1, antialiased=False)
+    ax.set_zlim(-1.01, 1.01)
 
 
 @image_comparison(baseline_images=['text3d'])

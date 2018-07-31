@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 import sys
-import tempfile
 
 import numpy as np
 import pytest
@@ -22,8 +21,6 @@ class NullMovieWriter(animation.AbstractMovieWriter):
     signature, and it doesn't define an isAvailable() method, so
     it cannot be added to the 'writers' registry.
     """
-
-    frame_size_can_vary = True
 
     def setup(self, fig, outfile, dpi, *args):
         self.fig = fig
@@ -110,7 +107,7 @@ class RegisteredNullMovieWriter(NullMovieWriter):
         pass
 
     @classmethod
-    def isAvailable(self):
+    def isAvailable(cls):
         return True
 
 
@@ -136,6 +133,8 @@ if sys.version_info >= (3, 6):
 # matplotlib.testing.image_comparison
 @pytest.mark.parametrize('writer, output', WRITER_OUTPUT)
 def test_save_animation_smoketest(tmpdir, writer, output):
+    if writer == 'pillow':
+        pytest.importorskip("PIL")
     try:
         # for ImageMagick the rcparams must be patched to account for
         # 'convert' being a built in MS tool, not the imagemagick
@@ -214,9 +213,10 @@ def test_movie_writer_registry():
     not animation.writers.is_available(mpl.rcParams["animation.writer"]),
     reason="animation writer not installed")
 @pytest.mark.parametrize("method_name", ["to_html5_video", "to_jshtml"])
-def test_embed_limit(method_name, caplog):
-    with mpl.rc_context({"animation.embed_limit": 1e-6}):  # ~1 byte.
-        getattr(make_animation(frames=1), method_name)()
+def test_embed_limit(method_name, caplog, tmpdir):
+    with tmpdir.as_cwd():
+        with mpl.rc_context({"animation.embed_limit": 1e-6}):  # ~1 byte.
+            getattr(make_animation(frames=1), method_name)()
     assert len(caplog.records) == 1
     record, = caplog.records
     assert (record.name == "matplotlib.animation"

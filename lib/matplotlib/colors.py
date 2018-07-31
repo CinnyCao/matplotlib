@@ -44,10 +44,9 @@ Matplotlib recognizes the following formats to specify a color:
 All string specifications of color, other than "CN", are case-insensitive.
 """
 
-from collections import Sized
+from collections.abc import Sized
 import itertools
 import re
-import warnings
 
 import numpy as np
 import matplotlib.cbook as cbook
@@ -248,7 +247,7 @@ def to_rgba_array(c, alpha=None):
     # Note that this occurs *after* handling inputs that are already arrays, as
     # `to_rgba(c, alpha)` (below) is expensive for such inputs, due to the need
     # to format the array in the ValueError message(!).
-    if isinstance(c, str) and c.lower() == "none":
+    if cbook._str_lower_equal(c, "none"):
         return np.zeros((0, 4), float)
     try:
         return np.array([to_rgba(c, alpha)], float)
@@ -515,8 +514,7 @@ class Colormap(object):
             lut = self._lut.copy()  # Don't let alpha modify original _lut.
 
         if alpha is not None:
-            alpha = min(alpha, 1.0)  # alpha must be between 0 and 1
-            alpha = max(alpha, 0.0)
+            alpha = np.clip(alpha, 0, 1)
             if bytes:
                 alpha = int(alpha * 255)
             if (lut[-1] == 0).all():
@@ -548,7 +546,7 @@ class Colormap(object):
     def set_bad(self, color='k', alpha=None):
         """Set color to be used for masked values.
         """
-        self._rgba_bad = colorConverter.to_rgba(color, alpha)
+        self._rgba_bad = to_rgba(color, alpha)
         if self._isinit:
             self._set_extremes()
 
@@ -556,7 +554,7 @@ class Colormap(object):
         """Set color to be used for low out-of-range values.
            Requires norm.clip = False
         """
-        self._rgba_under = colorConverter.to_rgba(color, alpha)
+        self._rgba_under = to_rgba(color, alpha)
         if self._isinit:
             self._set_extremes()
 
@@ -564,7 +562,7 @@ class Colormap(object):
         """Set color to be used for high out-of-range values.
            Requires norm.clip = False
         """
-        self._rgba_over = colorConverter.to_rgba(color, alpha)
+        self._rgba_over = to_rgba(color, alpha)
         if self._isinit:
             self._set_extremes()
 
@@ -719,7 +717,7 @@ class LinearSegmentedColormap(Colormap):
 
         cdict = dict(red=[], green=[], blue=[], alpha=[])
         for val, color in zip(vals, colors):
-            r, g, b, a = colorConverter.to_rgba(color)
+            r, g, b, a = to_rgba(color)
             cdict['red'].append((val, r, r))
             cdict['green'].append((val, g, g))
             cdict['blue'].append((val, b, b))
@@ -819,9 +817,8 @@ class ListedColormap(Colormap):
         Colormap.__init__(self, name, N)
 
     def _init(self):
-        rgba = colorConverter.to_rgba_array(self.colors)
         self._lut = np.zeros((self.N + 3, 4), float)
-        self._lut[:-3] = rgba
+        self._lut[:-3] = to_rgba_array(self.colors)
         self._isinit = True
         self._set_extremes()
 
@@ -1114,7 +1111,8 @@ class SymLogNorm(Normalize):
         """
         Inplace transformation.
         """
-        masked = np.abs(a) > self.linthresh
+        with np.errstate(invalid="ignore"):
+            masked = np.abs(a) > self.linthresh
         sign = np.sign(a[masked])
         log = (self._linscale_adj + np.log(np.abs(a[masked]) / self.linthresh))
         log *= sign * self.linthresh
@@ -1171,8 +1169,8 @@ class SymLogNorm(Normalize):
 
 class PowerNorm(Normalize):
     """
-    Normalize a given value to the ``[0, 1]`` interval with a power-law
-    scaling. This will clip any negative data points to 0.
+    Linearly map a given value to the 0-1 range and then apply
+    a power-law normalization over that range.
     """
     def __init__(self, gamma, vmin=None, vmax=None, clip=False):
         Normalize.__init__(self, vmin, vmax, clip)
@@ -1192,18 +1190,17 @@ class PowerNorm(Normalize):
         elif vmin == vmax:
             result.fill(0)
         else:
-            res_mask = result.data < 0
             if clip:
                 mask = np.ma.getmask(result)
                 result = np.ma.array(np.clip(result.filled(vmax), vmin, vmax),
                                      mask=mask)
             resdat = result.data
             resdat -= vmin
+            resdat[resdat < 0] = 0
             np.power(resdat, gamma, resdat)
             resdat /= (vmax - vmin) ** gamma
 
             result = np.ma.array(resdat, mask=result.mask, copy=False)
-            result[res_mask] = 0
         if is_scalar:
             result = result[0]
         return result
@@ -1225,10 +1222,6 @@ class PowerNorm(Normalize):
         Set *vmin*, *vmax* to min, max of *A*.
         """
         self.vmin = np.ma.min(A)
-        if self.vmin < 0:
-            self.vmin = 0
-            warnings.warn("Power-law scaling on negative values is "
-                          "ill-defined, clamping to 0.")
         self.vmax = np.ma.max(A)
 
     def autoscale_None(self, A):
@@ -1236,10 +1229,6 @@ class PowerNorm(Normalize):
         A = np.asanyarray(A)
         if self.vmin is None and A.size:
             self.vmin = A.min()
-            if self.vmin < 0:
-                self.vmin = 0
-                warnings.warn("Power-law scaling on negative values is "
-                              "ill-defined, clamping to 0.")
         if self.vmax is None and A.size:
             self.vmax = A.max()
 

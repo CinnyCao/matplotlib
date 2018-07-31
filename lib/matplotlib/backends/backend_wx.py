@@ -7,8 +7,6 @@ Hunter (jdhunter@ace.bsd.uchicago.edu).
 Copyright (C) Jeremy O'Donoghue & John Hunter, 2003-4.
 """
 
-import six
-
 import os.path
 import math
 import sys
@@ -18,7 +16,8 @@ import weakref
 import matplotlib
 from matplotlib.backend_bases import (
     _Backend, FigureCanvasBase, FigureManagerBase, GraphicsContextBase,
-    NavigationToolbar2, RendererBase, TimerBase, cursors)
+    NavigationToolbar2, RendererBase, TimerBase, cursors, ToolContainerBase,
+    StatusbarBase)
 from matplotlib.backend_bases import _has_pil
 
 from matplotlib._pylab_helpers import Gcf
@@ -27,6 +26,7 @@ from matplotlib.figure import Figure
 from matplotlib.path import Path
 from matplotlib.transforms import Affine2D
 from matplotlib.widgets import SubplotTool
+from matplotlib.backend_managers import ToolManager
 from matplotlib import cbook, rcParams, backend_tools
 
 import wx
@@ -97,7 +97,7 @@ def error_msg_wx(msg, parent=None):
 
 def raise_msg_to_str(msg):
     """msg is a return arg from a raise.  Join with new lines."""
-    if not isinstance(msg, six.string_types):
+    if not isinstance(msg, str):
         msg = '\n'.join(map(str, msg))
     return msg
 
@@ -120,19 +120,15 @@ class TimerWx(TimerBase):
 
     '''
 
-    def __init__(self, parent, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
+        if isinstance(args[0], wx.EvtHandler):
+            cbook.warn_deprecated(
+                "3.0", "Passing a wx.EvtHandler as first argument to the "
+                "TimerWx constructor is deprecated since %(version)s.")
+            args = args[1:]
         TimerBase.__init__(self, *args, **kwargs)
-
-        # Create a new timer and connect the timer event to our handler.
-        # For WX, the events have to use a widget for binding.
-        self.parent = parent
-        self._timer = wx.Timer(self.parent, wx.NewId())
-        self.parent.Bind(wx.EVT_TIMER, self._on_timer, self._timer)
-
-     # Unbinding causes Wx to stop for some reason. Disabling for now.
-#    def __del__(self):
-#        TimerBase.__del__(self)
-#        self.parent.Bind(wx.EVT_TIMER, None, self._timer)
+        self._timer = wx.Timer()
+        self._timer.Notify = self._on_timer
 
     def _timer_start(self):
         self._timer.Start(self._interval, self._single)
@@ -145,9 +141,6 @@ class TimerWx(TimerBase):
 
     def _timer_set_single_shot(self):
         self._timer.Start()
-
-    def _on_timer(self, *args):
-        TimerBase._on_timer(self)
 
 
 class RendererWx(RendererBase):
@@ -489,7 +482,7 @@ class GraphicsContextWx(GraphicsContextBase):
         w = float(w)
         DEBUG_MSG("set_linewidth()", 1, self)
         self.select()
-        if w > 0 and w < 1:
+        if 0 < w < 1:
             w = 1
         GraphicsContextBase.set_linewidth(self, w)
         lw = int(self.renderer.points_to_pixels(self._linewidth))
@@ -667,9 +660,6 @@ class _FigureCanvasWxBase(FigureCanvasBase, wx.Panel):
     def macros(self):
         return {}
 
-    def Destroy(self, *args, **kwargs):
-        wx.Panel.Destroy(self, *args, **kwargs)
-
     def Copy_to_Clipboard(self, event=None):
         "copy bitmap of canvas to system clipboard"
         bmp_obj = wx.BitmapDataObject()
@@ -709,7 +699,7 @@ class _FigureCanvasWxBase(FigureCanvasBase, wx.Panel):
             will be executed by the timer every *interval*.
 
         """
-        return TimerWx(self, *args, **kwargs)
+        return TimerWx(*args, **kwargs)
 
     def flush_events(self):
         wx.Yield()
@@ -1111,7 +1101,7 @@ class FigureCanvasWx(_FigureCanvasWxBase):
 
         # Now that we have rendered into the bitmap, save it
         # to the appropriate file type and clean up
-        if isinstance(filename, six.string_types):
+        if isinstance(filename, str):
             if not image.SaveFile(filename, filetype):
                 DEBUG_MSG('print_figure() file save error', 4, self)
                 raise RuntimeError(
@@ -1161,9 +1151,8 @@ class FigureFrameWx(wx.Frame):
         # Frame will be sized later by the Fit method
         DEBUG_MSG("__init__()", 1, self)
         self.num = num
+        _set_frame_icon(self)
 
-        statbar = StatusBarWx(self)
-        self.SetStatusBar(statbar)
         self.canvas = self.get_canvas(fig)
         self.canvas.SetInitialSize(wx.Size(fig.bbox.width, fig.bbox.height))
         self.canvas.SetFocus()
@@ -1172,7 +1161,18 @@ class FigureFrameWx(wx.Frame):
         # By adding toolbar in sizer, we are able to put it at the bottom
         # of the frame - so appearance is closer to GTK version
 
-        self.toolbar = self._get_toolbar(statbar)
+        self.toolmanager = self._get_toolmanager()
+        if self.toolmanager:
+            self.statusbar = StatusbarWx(self, self.toolmanager)
+        else:
+            self.statusbar = StatusBarWx(self)
+        self.SetStatusBar(self.statusbar)
+        self.toolbar = self._get_toolbar(self.statusbar)
+
+        if self.toolmanager:
+            backend_tools.add_tools_to_manager(self.toolmanager)
+            if self.toolbar:
+                backend_tools.add_tools_to_container(self.toolbar)
 
         if self.toolbar is not None:
             self.toolbar.Realize()
@@ -1206,9 +1206,18 @@ class FigureFrameWx(wx.Frame):
         if rcParams['toolbar'] == 'toolbar2':
             toolbar = NavigationToolbar2Wx(self.canvas)
             toolbar.set_status_bar(statbar)
+        elif matplotlib.rcParams['toolbar'] == 'toolmanager':
+            toolbar = ToolbarWx(self.toolmanager, self)
         else:
             toolbar = None
         return toolbar
+
+    def _get_toolmanager(self):
+        if matplotlib.rcParams['toolbar'] == 'toolmanager':
+            toolmanager = ToolManager(self.canvas.figure)
+        else:
+            toolmanager = None
+        return toolmanager
 
     def get_canvas(self, fig):
         return FigureCanvasWx(self, -1, fig)
@@ -1266,14 +1275,8 @@ class FigureManagerWx(FigureManagerBase):
         self.frame = frame
         self.window = frame
 
-        self.tb = frame.GetToolBar()
-        self.toolbar = self.tb  # consistent with other backends
-
-        def notify_axes_change(fig):
-            'this will be called whenever the current axes is changed'
-            if self.tb is not None:
-                self.tb.update()
-        self.canvas.figure.add_axobserver(notify_axes_change)
+        self.toolmanager = getattr(frame, "toolmanager", None)
+        self.toolbar = frame.GetToolBar()
 
     def show(self):
         self.frame.Show()
@@ -1335,6 +1338,20 @@ def _load_bitmap(filename):
 
     bmp = wx.Bitmap(bmpFilename)
     return bmp
+
+
+def _set_frame_icon(frame):
+    # set frame icon
+    bundle = wx.IconBundle()
+    for image in ('matplotlib.png', 'matplotlib_large.png'):
+        image = os.path.join(matplotlib.rcParams['datapath'], 'images', image)
+        if not os.path.exists(image):
+            continue
+        icon = wx.Icon(_load_bitmap(image))
+        if not icon.IsOk():
+            return
+        bundle.AddIcon(icon)
+    frame.SetIcons(bundle)
 
 
 class MenuButtonWx(wx.Button):
@@ -1524,6 +1541,7 @@ class NavigationToolbar2Wx(NavigationToolbar2, wx.ToolBar):
     def configure_subplots(self, evt):
         global FigureManager  # placates pyflakes: created by @_Backend.export
         frame = wx.Frame(None, -1, "Configure subplots")
+        _set_frame_icon(frame)
 
         toolfig = Figure((6, 3))
         canvas = self.get_canvas(frame, toolfig)
@@ -1564,7 +1582,7 @@ class NavigationToolbar2Wx(NavigationToolbar2, wx.ToolBar):
                 warnings.warn(
                     'extension %s did not match the selected '
                     'image type %s; going with %s' %
-                    (ext, format, ext), stacklevel=0)
+                    (ext, format, ext), stacklevel=2)
                 format = ext
             try:
                 self.canvas.figure.savefig(
@@ -1639,7 +1657,7 @@ class NavigationToolbar2Wx(NavigationToolbar2, wx.ToolBar):
 
         if y1 < y0:
             y0, y1 = y1, y0
-        if x1 < y0:
+        if x1 < x0:
             x0, x1 = x1, x0
 
         w = x1 - x0
@@ -1684,7 +1702,7 @@ class StatusBarWx(wx.StatusBar):
     convenience.
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, *args, **kwargs):
         wx.StatusBar.__init__(self, parent, -1)
         self.SetFieldsCount(2)
         self.SetStatusText("None", 1)
@@ -1699,9 +1717,107 @@ class StatusBarWx(wx.StatusBar):
 
 
 # tools for matplotlib.backend_managers.ToolManager:
-# for now only SaveFigure, SetCursor and Rubberband are implemented
-# once a ToolbarWx is implemented, also FigureManagerWx needs to be
-# modified, similar to pull request #9934
+
+class ToolbarWx(ToolContainerBase, wx.ToolBar):
+    def __init__(self, toolmanager, parent, style=wx.TB_HORIZONTAL):
+        ToolContainerBase.__init__(self, toolmanager)
+        wx.ToolBar.__init__(self, parent, -1, style=style)
+        self._toolitems = {}
+        self._groups = {}
+        self._last = None
+
+    def add_toolitem(
+        self, name, group, position, image_file, description, toggle):
+
+        before, group = self._add_to_group(group, name, position)
+        idx = self.GetToolPos(before.Id)
+        if image_file:
+            bmp = _load_bitmap(image_file)
+            kind = wx.ITEM_NORMAL if not toggle else wx.ITEM_CHECK
+            tool = self.InsertTool(idx, -1, name, bmp, wx.NullBitmap, kind,
+                                   description or "")
+        else:
+            size = (self.GetTextExtent(name)[0]+10, -1)
+            if toggle:
+                control = wx.ToggleButton(self, -1, name, size=size)
+            else:
+                control = wx.Button(self, -1, name, size=size)
+            tool = self.InsertControl(idx, control, label=name)
+        self.Realize()
+
+        def handler(event):
+            self.trigger_tool(name)
+
+        if image_file:
+            self.Bind(wx.EVT_TOOL, handler, tool)
+        else:
+            control.Bind(wx.EVT_LEFT_DOWN, handler)
+
+        self._last = tool
+        self._toolitems.setdefault(name, [])
+        group.insert(position, tool)
+        self._toolitems[name].append((tool, handler))
+
+    def _add_to_group(self, group, name, position):
+        gr = self._groups.get(group, [])
+        if not gr:
+            sep = self.AddSeparator()
+            gr.append(sep)
+        before = gr[position]
+        self._groups[group] = gr
+        return before, gr
+
+    def toggle_toolitem(self, name, toggled):
+        if name not in self._toolitems:
+            return
+        for tool, handler in self._toolitems[name]:
+            if not tool.IsControl():
+                self.ToggleTool(tool.Id, toggled)
+            else:
+                tool.GetControl().SetValue(toggled)
+        self.Refresh()
+
+    def remove_toolitem(self, name):
+        for tool, handler in self._toolitems[name]:
+            self.DeleteTool(tool.Id)
+        del self._toolitems[name]
+
+
+class StatusbarWx(StatusbarBase, wx.StatusBar):
+    """for use with ToolManager"""
+    def __init__(self, parent, *args, **kwargs):
+        StatusbarBase.__init__(self, *args, **kwargs)
+        wx.StatusBar.__init__(self, parent, -1)
+        self.SetFieldsCount(1)
+        self.SetStatusText("")
+
+    def set_message(self, s):
+        self.SetStatusText(s)
+
+
+class ConfigureSubplotsWx(backend_tools.ConfigureSubplotsBase):
+    def trigger(self, *args):
+        self.configure_subplots()
+
+    def configure_subplots(self):
+        frame = wx.Frame(None, -1, "Configure subplots")
+        _set_frame_icon(frame)
+
+        toolfig = Figure((6, 3))
+        canvas = self.get_canvas(frame, toolfig)
+
+        # Now put all into a sizer
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        # This way of adding to sizer allows resizing
+        sizer.Add(canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
+        frame.SetSizer(sizer)
+        frame.Fit()
+        tool = SubplotTool(self.canvas.figure, toolfig)
+        frame.Show()
+
+    def get_canvas(self, frame, fig):
+        return type(self.canvas)(frame, -1, fig)
+
 
 class SaveFigureWx(backend_tools.SaveFigureBase):
     def trigger(self, *args):
@@ -1730,7 +1846,7 @@ class SaveFigureWx(backend_tools.SaveFigureBase):
             warnings.warn(
                 'extension %s did not match the selected '
                 'image type %s; going with %s' %
-                (ext, format, ext), stacklevel=0)
+                (ext, format, ext), stacklevel=2)
             format = ext
         if default_dir != "":
             matplotlib.rcParams['savefig.directory'] = dirname
@@ -1771,7 +1887,7 @@ if 'wxMac' not in wx.PlatformInfo:
 
             if y1 < y0:
                 y0, y1 = y1, y0
-            if x1 < y0:
+            if x1 < x0:
                 x0, x1 = x1, x0
 
             w = x1 - x0
@@ -1835,9 +1951,75 @@ else:
             self._rect = None
 
 
+class _HelpDialog(wx.Dialog):
+    _instance = None  # a reference to an open dialog singleton
+    headers = [("Action", "Shortcuts", "Description")]
+    widths = [100, 140, 300]
+
+    def __init__(self, parent, help_entries):
+        wx.Dialog.__init__(self, parent, title="Help",
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        grid_sizer = wx.FlexGridSizer(0, 3, 8, 6)
+        # create and add the entries
+        bold = self.GetFont().MakeBold()
+        for r, row in enumerate(self.headers + help_entries):
+            for (col, width) in zip(row, self.widths):
+                label = wx.StaticText(self, label=col)
+                if r == 0:
+                    label.SetFont(bold)
+                label.Wrap(width)
+                grid_sizer.Add(label, 0, 0, 0)
+        # finalize layout, create button
+        sizer.Add(grid_sizer, 0, wx.ALL, 6)
+        OK = wx.Button(self, wx.ID_OK)
+        sizer.Add(OK, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALL, 8)
+        self.SetSizer(sizer)
+        sizer.Fit(self)
+        self.Layout()
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+        OK.Bind(wx.EVT_BUTTON, self.OnClose)
+
+    def OnClose(self, evt):
+        _HelpDialog._instance = None  # remove global reference
+        self.DestroyLater()
+        evt.Skip()
+
+    @classmethod
+    def show(cls, parent, help_entries):
+        # if no dialog is shown, create one; otherwise just re-raise it
+        if cls._instance:
+            cls._instance.Raise()
+            return
+        cls._instance = cls(parent, help_entries)
+        cls._instance.Show()
+
+
+class HelpWx(backend_tools.ToolHelpBase):
+    def trigger(self, *args):
+        _HelpDialog.show(self.figure.canvas.GetTopLevelParent(),
+                         self._get_help_entries())
+
+
+class ToolCopyToClipboardWx(backend_tools.ToolCopyToClipboardBase):
+    def trigger(self, *args, **kwargs):
+        if not self.canvas._isDrawn:
+            self.canvas.draw()
+        if not self.canvas.bitmap.IsOk() or not wx.TheClipboard.Open():
+            return
+        try:
+            wx.TheClipboard.SetData(wx.BitmapDataObject(self.canvas.bitmap))
+        finally:
+            wx.TheClipboard.Close()
+
+
 backend_tools.ToolSaveFigure = SaveFigureWx
+backend_tools.ToolConfigureSubplots = ConfigureSubplotsWx
 backend_tools.ToolSetCursor = SetCursorWx
 backend_tools.ToolRubberband = RubberbandWx
+backend_tools.ToolHelp = HelpWx
+backend_tools.ToolCopyToClipboard = ToolCopyToClipboardWx
 
 
 # < Additions for printing support: Matt Newville
@@ -1928,6 +2110,7 @@ class PrintoutWx(wx.Printout):
 
 @_Backend.export
 class _BackendWx(_Backend):
+    required_interactive_framework = "wx"
     FigureCanvas = FigureCanvasWx
     FigureManager = FigureManagerWx
     _frame_class = FigureFrameWx

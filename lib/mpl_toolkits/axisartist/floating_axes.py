@@ -1,11 +1,8 @@
 """
 An experimental support for curvilinear grid.
 """
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
 
-import six
-from six.moves import zip
+import functools
 
 # TODO :
 # see if tick_iterator method can be simplified by reusing the parent method.
@@ -69,8 +66,7 @@ class FixedAxisArtistHelper(grid_helper_curvelinear.FloatingAxisArtistHelper):
         trans_passingthrough_point = axes.transData + axes.transAxes.inverted()
         p = trans_passingthrough_point.transform_point([xx1[0], yy1[0]])
 
-
-        if (0. <= p[0] <= 1.) and (0. <= p[1] <= 1.):
+        if 0 <= p[0] <= 1 and 0 <= p[1] <= 1:
             xx1c, yy1c = axes.transData.transform_point([xx1[0], yy1[0]])
             xx2, yy2 = grid_finder.transform_xy([xx0+dxx], [yy0+dyy])
             xx2c, yy2c = axes.transData.transform_point([xx2[0], yy2[0]])
@@ -236,7 +232,7 @@ class GridHelperCurveLinear(grid_helper_curvelinear.GridHelperCurveLinear):
         objects which defines the transform and its inverse. The callables
         need take two arguments of array of source coordinates and
         should return two target coordinates:
-          e.g., x2, y2 = trans(x1, y1)
+        e.g., *x2, y2 = trans(x1, y1)*
         """
 
         self._old_values = None
@@ -509,19 +505,12 @@ class FloatingAxesBase(object):
         self.set_ylim(ymin-dy, ymax+dy)
 
 
-
-_floatingaxes_classes = {}
-
+@functools.lru_cache(None)
 def floatingaxes_class_factory(axes_class):
+    return type("Floating %s" % axes_class.__name__,
+                (FloatingAxesBase, axes_class),
+                {'_axes_class_floating': axes_class})
 
-    new_class = _floatingaxes_classes.get(axes_class)
-    if new_class is None:
-        new_class = type(str("Floating %s" % (axes_class.__name__)),
-                         (FloatingAxesBase, axes_class),
-                         {'_axes_class_floating': axes_class})
-        _floatingaxes_classes[axes_class] = new_class
-
-    return new_class
 
 from .axislines import Axes
 from mpl_toolkits.axes_grid1.parasite_axes import host_axes_class_factory
