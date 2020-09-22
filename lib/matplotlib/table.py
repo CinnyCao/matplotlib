@@ -40,7 +40,8 @@ class Cell(Rectangle):
                  fill=True,
                  text='',
                  loc=None,
-                 fontproperties=None
+                 fontproperties=None,
+                 isLabel=False
                  ):
 
         # Call base
@@ -55,6 +56,14 @@ class Cell(Rectangle):
         self._text = Text(x=xy[0], y=xy[1], text=text,
                           fontproperties=fontproperties)
         self._text.set_clip_on(False)
+        self._isLabel = isLabel
+
+    def set_isLabel(self, isLabel):
+        # set isLabel to True if cell is colLabel or rowLabel
+        self._isLabel = isLabel
+
+    def get_isLabel(self):
+        return self._isLabel
 
     def set_transform(self, trans):
         Rectangle.set_transform(self, trans)
@@ -257,6 +266,7 @@ class Table(Artist):
         self.set_transform(ax.transAxes)
 
         self._texts = []
+        self._labels = []
         self._cells = {}
         self._edges = None
         self._autoRows = []
@@ -266,7 +276,7 @@ class Table(Artist):
 
         self.set_clip_on(False)
 
-    def add_cell(self, row, col, *args, **kwargs):
+    def add_cell(self, row, col, isLabel=False, *args, **kwargs):
         """
         Add a cell to the table.
 
@@ -283,7 +293,8 @@ class Table(Artist):
 
         """
         xy = (0, 0)
-        cell = CustomCell(xy, visible_edges=self.edges, *args, **kwargs)
+        cell = CustomCell(xy, isLabel=isLabel,
+                          visible_edges=self.edges, *args, **kwargs)
         self[row, col] = cell
         return cell
 
@@ -355,6 +366,34 @@ class Table(Artist):
                  if row >= 0 and col >= 0]
         bbox = Bbox.union(boxes)
         return bbox.inverse_transformed(self.get_transform())
+
+    def containedCell(self, mouseevent):
+        """Find whether the mouse event occurred inside any of the table cells
+        and return related location info if a such cell is found.
+
+        Returns box, cell, r, c
+        box: box that corresponding to the cell
+             None if not found
+        cell: Cell object in which the mouse event occurred
+              None if not found
+        r: row index of that cell (starting at 0)
+           -1 if not found
+        c: column index of that cell (starting at 0)
+           -1 if not found
+        """
+        if callable(self._contains):
+            return self._contains(self, mouseevent)
+
+        renderer = self.figure._cachedRenderer
+        if renderer is not None:
+            for (r, c), cell in self._cells.items():
+                # excluding table header cells, usually first row and col
+                if not cell.get_isLabel():
+                    box = cell.get_window_extent(renderer)
+                    if box.contains(mouseevent.x, mouseevent.y):
+                        return box, cell, r, c
+
+        return None, None, -1, -1
 
     def contains(self, mouseevent):
         """Test whether the mouse event occurred in the table.
@@ -574,6 +613,153 @@ class Table(Artist):
         """Return a dict of cells in the table."""
         return self._cells
 
+    def enable_markerPicker(self, markerPicker):
+        """Connect click event to the table to draw markers by clicking"""
+        if markerPicker:
+            self.figure.canvas.mpl_connect(
+                'button_press_event',
+                lambda event: self.draw_marker(event, markerPicker))
+            self._marker_history = dict()
+
+    def draw_marker(self, event, markerPicker):
+        """Draw marker in the cell clicked"""
+        pickedMarker = markerPicker.get_pickedMarker()
+        if pickedMarker:
+            if isinstance(pickedMarker, dict):
+                bbox, cell, col, row = self.containedCell(event)
+                if (bbox):
+                    l, b, w, h = bbox.bounds
+                    y = b + (h / 2.0)
+                    x = l + (w / 2.0)
+                    inv = self._axes.transData.inverted()
+                    xdata, ydata = inv.transform((x, y))
+
+                    # erase old marker if already exists
+                    if (col, row) in self._marker_history:
+                        msize = 6
+                        if "markersize" in self._marker_history[(col, row)]:
+                            msize = \
+                                self._marker_history[(col, row)]["markersize"]
+                        eraser = dict(color=cell.get_facecolor(),
+                                      marker="s", markersize=msize)
+                        self._axes.plot(xdata, ydata,
+                                        scalex=False, scaley=False,
+                                        **eraser)
+
+                    # draw marker or replace marker
+                    if (col, row) not in self._marker_history or\
+                            self._marker_history[(col, row)] != pickedMarker:
+                        self._marker_history[(col, row)] = pickedMarker
+                        self._axes.plot(xdata, ydata,
+                                        scalex=False, scaley=False,
+                                        **pickedMarker)
+                    # remove marker history
+                    else:
+                        self._marker_history.pop((col, row))
+
+                    self.figure.canvas.draw()
+
+            else:
+                raise ValueError('Invalid markers provided.')
+
+
+class MarkerPickerTable(Table):
+    """
+    Create a table of clickable cells.
+
+    Each row represents a marker which can be selected to draw on
+    the canvas tables.
+    """
+
+    def __init__(self, ax, markerOptions, drawMarker=True, highlightColor='y',
+                 loc=None, bbox=None, **kwargs):
+        """
+
+        Parameters
+        ----------
+        ax : ax
+
+        markerOptions : list of marker
+            List of markers that can be selected to draw
+            Marker is Object from matplotlib.markers
+
+        drawMarker : Boolean
+            If True, a demo of the markers will be draw in first column
+
+        highlightColor : color
+            Color of the highlighter for selected row
+
+        -------
+        """
+        Table.__init__(self, ax, loc, bbox, **kwargs)
+        self._highlightColor = highlightColor
+        self.set_markerOptions(markerOptions)
+        self.figure.canvas.mpl_connect(
+            'button_press_event', self.select_marker)
+        self._draw_marker = drawMarker
+
+    def set_markerOptions(self, markerOptions):
+        """
+        Populate table with marker options given
+        Each marker has its own row
+        """
+        self._markerOptions = markerOptions
+
+    def get_markerOptions(self):
+        """
+        Return the copy of markerOptions.
+        """
+        return self._markerOptions.copy()
+
+    def get_pickedMarker(self):
+        """
+        Return the selected marker
+        """
+        return self._markerOptions[self._markerIndex].copy()
+
+    def set_pickedMarker(self, markerIndex=0):
+        """
+        Select marker given index; color the selected marker row to
+        the highlightColor
+        """
+        self._markerIndex = markerIndex
+        for (r, c), cell in self._cells.items():
+            if not cell.get_isLabel():
+                if r == markerIndex+1:
+                    cell.set_facecolor(self._highlightColor)
+                else:
+                    cell.set_facecolor('w')
+        self.figure.canvas.draw()
+
+    def select_marker(self, event):
+        """
+        Find the row being clicked and set the row's corresponding marker
+        as selected
+        """
+        bbox, cell, row, col = self.containedCell(event)
+        if bbox:
+            self.set_pickedMarker(markerIndex=row-1)
+
+    @allow_rasterization
+    def draw(self, renderer):
+        Table.draw(self, renderer)
+        # display markers options
+        if self._draw_marker:
+            self._draw_marker = False
+            for (r, c), cell in self._cells.items():
+                if not cell.get_isLabel() and c == 0:
+                    marker = self.get_markerOptions()[r-1]
+                    bbox = cell.get_window_extent(renderer)
+                    l, b, w, h = bbox.bounds
+                    y = b + (h / 2.0)
+                    x = l + (w / 2.0)
+                    inv = self._axes.transData.inverted()
+                    xdata, ydata = inv.transform((x, y))
+                    self._axes.plot(xdata, ydata,
+                                    scalex=False, scaley=False,
+                                    **marker)
+            self.figure.canvas.draw()
+
 
 def table(ax,
           cellText=None, cellColours=None,
@@ -581,24 +767,66 @@ def table(ax,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
           loc='bottom', bbox=None, edges='closed',
+          markerOptions=None, canvasTable=None,
+          drawMarker=True, highlightColor="#fcedab",
           **kwargs):
     """
     TABLE(cellText=None, cellColours=None,
           cellLoc='right', colWidths=None,
           rowLabels=None, rowColours=None, rowLoc='left',
           colLabels=None, colColours=None, colLoc='center',
-          loc='bottom', bbox=None, edges='closed')
+          loc='bottom', bbox=None, edges='closed',
+          markerOptions=None, canvasTable=None,
+          drawMarker=True, highlightColor="y")
 
     Factory function to generate a Table instance.
 
     Thanks to John Gill for providing the class and table.
     """
+    createMPTable = markerOptions is not None or canvasTable is not None
+    if createMPTable:
+        if markerOptions is None or canvasTable is None or \
+                len(markerOptions) <= 0:
+            raise ValueError('No marker options or canvas table provided to'
+                             'create a marker picker table.')
 
-    if cellColours is None and cellText is None:
-        raise ValueError('At least one argument from "cellColours" or '
-                         '"cellText" must be provided to create a table.')
+        if cellColours is not None:
+            warnings.warn("Provided cellColours would be ignored when"
+                          " creating a marker picker table.")
+        if drawMarker:
+            # if display markers
+            if cellText is not None:
+                if colLabels is None:
+                    raise ValueError("colLabels must be provided if cellText"
+                                     " is provided when creating a marker"
+                                     " picker table.")
+                # insert marker col in first col
+                cellText = [[""] + r for r in cellText]
+            else:
+                # use default colLabel for markers column
+                # if no cellText is provided
+                if colLabels is None:
+                    colLabels = ["Markers"]
+                # marker col is the only column
+                cellText = [[''] * 1] * len(markerOptions)
+        else:
+            if cellText is None:
+                raise ValueError('"cellText" must be provided to create'
+                                 ' a marker picker table without displaying'
+                                 ' markers.')
+            elif rowLabels is None and colLabels is None:
+                raise ValueError('At least one argument "rowLabels" or '
+                                 '"colLabels") must be provided to create'
+                                 ' a marker picker table without displaying'
+                                 ' markers.')
+
+    else:
+        if cellColours is None and cellText is None:
+            raise ValueError('At least one argument from "cellColours" or '
+                             '"cellText" must be provided to create a table.')
 
     # Check we have some cellText
+    # it would only happen when creating general table
     if cellText is None:
         # assume just colours are needed
         rows = len(cellColours)
@@ -607,20 +835,31 @@ def table(ax,
 
     rows = len(cellText)
     cols = len(cellText[0])
+
+    # ensure row number must be the same as markerOptions's number
+    if createMPTable:
+        if rows != len(markerOptions):
+            raise ValueError("The marker picker table must have {} rows"
+                             " since {} marker options passed"
+                             .format(len(markerOptions),
+                                     len(markerOptions)))
+
     for row in cellText:
         if len(row) != cols:
             raise ValueError("Each row in 'cellText' must have {} columns"
                              .format(cols))
 
-    if cellColours is not None:
+    # the cell colours of marker picker table are default to white
+    if cellColours is None or createMPTable:
+        cellColours = ['w' * cols] * rows
+    else:
         if len(cellColours) != rows:
-            raise ValueError("'cellColours' must have {} rows".format(rows))
+            raise ValueError("'cellColours' must have {} rows"
+                             .format(rows))
         for row in cellColours:
             if len(row) != cols:
                 raise ValueError("Each row in 'cellColours' must have {} "
                                  "columns".format(cols))
-    else:
-        cellColours = ['w' * cols] * rows
 
     # Set colwidths if not given
     if colWidths is None:
@@ -628,17 +867,17 @@ def table(ax,
 
     # Fill in missing information for column
     # and row labels
-    rowLabelWidth = 0
     if rowLabels is None:
         if rowColours is not None:
             rowLabels = [''] * rows
-            rowLabelWidth = colWidths[0]
     elif rowColours is None:
         rowColours = 'w' * rows
+    rowLabelWidth = colWidths[0]
 
     if rowLabels is not None:
         if len(rowLabels) != rows:
-            raise ValueError("'rowLabels' must be of length {0}".format(rows))
+            raise ValueError("'rowLabels' must be of"" length {0}"
+                             .format(rows))
 
     # If we have column labels, need to shift
     # the text and colour arrays down 1 row
@@ -651,12 +890,23 @@ def table(ax,
     elif colColours is None:
         colColours = 'w' * cols
 
+    if colLabels is not None:
+        if len(colLabels) != cols:
+            raise ValueError("'colLabels' must be of"" length {0}"
+                             .format(cols))
+
     # Set up cell colours if not given
     if cellColours is None:
         cellColours = ['w' * cols] * rows
 
     # Now create the table
-    table = Table(ax, loc, bbox, **kwargs)
+    if not createMPTable:
+        table = Table(ax, loc, bbox, **kwargs)
+    else:
+        table = MarkerPickerTable(ax, markerOptions, drawMarker=drawMarker,
+                                  highlightColor=highlightColor,
+                                  loc=loc, bbox=bbox, **kwargs)
+
     table.edges = edges
     height = table._approx_text_height()
 
@@ -668,13 +918,14 @@ def table(ax,
                            text=cellText[row][col],
                            facecolor=cellColours[row][col],
                            loc=cellLoc)
+
     # Do column labels
     if colLabels is not None:
         for col in range(cols):
             table.add_cell(0, col,
                            width=colWidths[col], height=height,
                            text=colLabels[col], facecolor=colColours[col],
-                           loc=colLoc)
+                           loc=colLoc, isLabel=True)
 
     # Do row labels
     if rowLabels is not None:
@@ -682,11 +933,18 @@ def table(ax,
             table.add_cell(row + offset, -1,
                            width=rowLabelWidth or 1e-15, height=height,
                            text=rowLabels[row], facecolor=rowColours[row],
-                           loc=rowLoc)
-        if rowLabelWidth == 0:
-            table.auto_set_column_width(-1)
+                           loc=rowLoc, isLabel=True)
+
+    if createMPTable or rowLabels is None:
+        table.auto_set_column_width(-1)
+
+    if createMPTable:
+        # set first marker as default picked marker
+        table.set_pickedMarker()
+        canvasTable.enable_markerPicker(table)
 
     ax.add_table(table)
+
     return table
 
 
